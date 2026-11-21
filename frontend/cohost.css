@@ -1,0 +1,32 @@
+.cohost-panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  color: #eff3fa;
+  background: #1d2430;
+  border: 1px solid #505b6c;
+  border-radius: 9px;
+  font: 14px/1.45 system-ui, sans-serif;
+  box-shadow: 0 3px 16px #1118;
+}
+.cohost-panel summary { cursor: pointer; padding: 8px 12px; font-weight: 600; }
+.cohost-panel section { width: min(340px, calc(100vw - 48px)); max-height: 74vh; overflow: auto; padding: 0 12px 12px; }
+.cohost-panel label { display: grid; gap: 4px; margin: 10px 0 6px; }
+.cohost-panel input, .cohost-panel textarea {
+  width: 100%; padding: 6px 8px; border: 1px solid #647187; border-radius: 5px;
+  background: #111823; color: inherit; font: inherit;
+}
+.cohost-panel button {
+  padding: 4px 8px; border: 1px solid #77859b; border-radius: 5px;
+  background: #354155; color: inherit; font: inherit; cursor: pointer;
+}
+.cohost-panel button:hover { background: #465675; }
+.cohost-panel button:disabled { opacity: .5; cursor: default; }
+.cohost-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.cohost-panel article { border-top: 1px solid #505b6c; margin-top: 10px; padding-top: 6px; }
+.cohost-panel article p { margin: 0 0 4px; overflow-wrap: anywhere; }
+.cohost-panel small { display: block; margin-top: 10px; color: #c1cbda; }
+.cohost-status { margin: 2px 0 8px; }
