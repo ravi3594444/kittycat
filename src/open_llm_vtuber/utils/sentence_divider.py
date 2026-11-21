@@ -119,26 +119,24 @@ def contains_comma(text: str) -> bool:
     return any(comma in text for comma in COMMAS)
 
 
-def comma_splitter(text: str) -> Tuple[str, str]:
-    """
-    Process text and split it at the first comma.
-    Returns the split text (including the comma) and the remaining text.
-
-    Args:
-        text: Text to split
-
-    Returns:
-        Tuple[str, str]: (split text with comma, remaining text)
-    """
-    if not text:
-        return [], ""
-
-    for comma in COMMAS:
-        if comma in text:
-            split_text = text.split(comma, 1)
-            # Return first part with the comma
-            return split_text[0].strip() + comma, split_text[1].strip()
-    return text, ""
+def comma_splitter(text: str, min_clause_chars: int = 0) -> Tuple[str, str]:
+    """Find an early pause with enough text to start speaking."""
+    for index, mark in enumerate(text):
+        if min_clause_chars and mark in END_PUNCTUATIONS:
+            break  # Let the sentence segmenter handle this boundary first.
+        if mark in COMMAS:
+            if (
+                min_clause_chars
+                and index > 0
+                and mark in {",", "،", "，"}
+                and text[index - 1].isdigit()
+                and (index + 1 == len(text) or text[index + 1].isdigit())
+            ):
+                continue  # A comma next to a digit can be part of a number.
+            first_clause = text[:index].strip()
+            if len(first_clause) >= min_clause_chars:
+                return first_clause + mark, text[index + 1 :].strip()
+    return "", text
 
 
 def has_punctuation(text: str) -> bool:
@@ -304,6 +302,7 @@ class SentenceDivider:
         faster_first_response: bool = True,
         segment_method: str = "pysbd",
         valid_tags: List[str] = None,
+        min_first_clause_chars: int = 0,
     ):
         """
         Initialize the SentenceDivider.
@@ -312,10 +311,12 @@ class SentenceDivider:
             faster_first_response: Whether to split first sentence at commas
             segment_method: Method for segmenting sentences
             valid_tags: List of valid tag names to detect
+            min_first_clause_chars: Minimum length before an early comma split
         """
         self.faster_first_response = faster_first_response
         self.segment_method = segment_method
         self.valid_tags = valid_tags or ["think"]
+        self.min_first_clause_chars = min_first_clause_chars
         self._is_first_sentence = True
         self._buffer = ""
         # Replace active_tags dict with a stack to handle nesting
@@ -495,7 +496,9 @@ class SentenceDivider:
                     and self.faster_first_response
                     and contains_comma(self._buffer)
                 ):
-                    sentence, remaining = comma_splitter(self._buffer)
+                    sentence, remaining = comma_splitter(
+                        self._buffer, self.min_first_clause_chars
+                    )
                     if sentence.strip():
                         yield SentenceWithTags(
                             text=sentence.strip(),
@@ -599,6 +602,14 @@ class SentenceDivider:
         """Segment text using the configured method"""
         if self.segment_method == "regex":
             return segment_text_by_regex(text)
+        if self._is_first_sentence and self.min_first_clause_chars:
+            sentence = text.strip()
+            if (
+                "\n" not in sentence
+                and is_complete_sentence(sentence)
+                and not contains_end_punctuation(sentence.rstrip(".!?。！？"))
+            ):
+                return [sentence], ""
         return segment_text_by_pysbd(text)
 
     def reset(self):

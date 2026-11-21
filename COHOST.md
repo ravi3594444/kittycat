@@ -15,6 +15,8 @@ Set `FISH_AUDIO_API_KEY` in the server's environment for microphone transcriptio
 
 With the default `unconfigured` chat key, you can type `hi` in the main chat to try a built-in greeting. General replies need a valid [Inception API key](https://docs.inceptionlabs.ai/get-started/authentication) when using the default `mercury-3` model. Set `COHOST_LLM_API_KEY` in the service's environment and restart the service. For a public preview with no login, keep the provider key in a privately accessible instance.
 
+Kittycat automatically uses realtime mode and low reasoning effort for `mercury-3` on Inception's API. The first complete sentence or substantial clause can go to Fish Audio while Mercury is still generating. The server keeps Fish Audio connections open between spoken turns when the provider supports it. [Inception voice tuning](https://docs.inceptionlabs.ai/usecases/voice)
+
 ## Try the voice on the live page
 
 Generate the sample once from the co-host's checkout. The script prompts for your Fish Audio API key when the shell and config have no key set.

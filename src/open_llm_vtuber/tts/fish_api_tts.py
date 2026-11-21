@@ -21,6 +21,7 @@ class TTSEngine(TTSInterface):
         base_url: str = "https://api.fish.audio",
         model: str = "s2.1-pro-free",
         style: Literal["little_cat", "neutral"] = "little_cat",
+        http_client: httpx.AsyncClient | None = None,
     ):
         self.api_key = os.getenv("FISH_AUDIO_API_KEY") or api_key
         self.reference_id = os.getenv("FISH_AUDIO_VOICE_ID") or reference_id
@@ -28,6 +29,7 @@ class TTSEngine(TTSInterface):
         self.url = f"{base_url.rstrip('/')}/v1/tts"
         self.model = os.getenv("FISH_AUDIO_TTS_MODEL") or model
         self.style = style
+        self.http_client = http_client
 
     def _request_options(self, text: str) -> dict:
         if not self.api_key:
@@ -81,8 +83,12 @@ class TTSEngine(TTSInterface):
         self, text: str, file_name_no_ext: str | None = None
     ) -> str:
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(self.url, **self._request_options(text))
-                return self._save_audio(response, file_name_no_ext)
+            options = self._request_options(text)
+            if self.http_client is not None:
+                response = await self.http_client.post(self.url, **options)
+            else:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(self.url, **options)
+            return self._save_audio(response, file_name_no_ext)
         except httpx.RequestError:
             raise RuntimeError("Fish Audio synthesis is unavailable.") from None

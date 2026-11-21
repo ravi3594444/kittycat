@@ -13,6 +13,7 @@ def sentence_divider(
     faster_first_response: bool = True,
     segment_method: str = "pysbd",
     valid_tags: List[str] = None,
+    min_first_clause_chars: int = 0,
 ):
     """
     Decorator that transforms token stream into sentences with tags
@@ -21,6 +22,7 @@ def sentence_divider(
         faster_first_response: bool - Whether to enable faster first response
         segment_method: str - Method for sentence segmentation
         valid_tags: List[str] - List of valid tags to process
+        min_first_clause_chars: Minimum length before an early comma split
     """
 
     def decorator(
@@ -38,6 +40,7 @@ def sentence_divider(
                 faster_first_response=faster_first_response,
                 segment_method=segment_method,
                 valid_tags=valid_tags or [],
+                min_first_clause_chars=min_first_clause_chars,
             )
             stream_from_func = func(*args, **kwargs)
 

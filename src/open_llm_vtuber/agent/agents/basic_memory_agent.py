@@ -603,6 +603,10 @@ class BasicMemoryAgent(AgentInterface):
         self,
     ) -> Callable[[BatchInput], AsyncIterator[Union[SentenceOutput, Dict[str, Any]]]]:
         """Create the chat pipeline function."""
+        is_kitty = (
+            self._live2d_model is not None
+            and self._live2d_model.model_info.get("name") in KITTY_AVATARS
+        )
 
         @tts_filter(self._tts_preprocessor_config)
         @display_processor()
@@ -611,6 +615,7 @@ class BasicMemoryAgent(AgentInterface):
             faster_first_response=self._faster_first_response,
             segment_method=self._segment_method,
             valid_tags=["think"],
+            min_first_clause_chars=18 if is_kitty else 0,
         )
         async def chat_with_memory(
             input_data: BatchInput,

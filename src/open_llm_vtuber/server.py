@@ -8,7 +8,9 @@ It uses FastAPI for the server and Starlette for static file serving.
 
 import os
 import shutil
+from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import Response
@@ -72,7 +74,7 @@ class WebSocketServer:
     """
 
     def __init__(self, config: Config, default_context_cache: ServiceContext = None):
-        self.app = FastAPI(title="Open-LLM-VTuber Server")  # Added title for clarity
+        self.app = FastAPI(title="Open-LLM-Vtuber Server", lifespan=self._lifespan)
         self.config = config
         self.default_context_cache = (
             default_context_cache or ServiceContext()
@@ -147,6 +149,18 @@ class WebSocketServer:
             CORSStaticFiles(directory="frontend", html=True),
             name="frontend",
         )
+
+    @asynccontextmanager
+    async def _lifespan(self, _app: FastAPI):
+        limits = httpx.Limits(
+            max_connections=100, max_keepalive_connections=20, keepalive_expiry=60
+        )
+        async with httpx.AsyncClient(limits=limits) as client:
+            self.default_context_cache.set_fish_audio_http_client(client)
+            try:
+                yield
+            finally:
+                self.default_context_cache.set_fish_audio_http_client(None)
 
     async def initialize(self):
         """Asynchronously load the service context from config.

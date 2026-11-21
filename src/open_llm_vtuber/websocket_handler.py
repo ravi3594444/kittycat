@@ -210,6 +210,9 @@ class WebSocketHandler:
     ) -> ServiceContext:
         """Initialize service context for a new session by cloning the default context"""
         session_service_context = ServiceContext()
+        session_service_context.set_fish_audio_http_client(
+            self.default_context_cache.fish_audio_http_client
+        )
         await session_service_context.load_cache(
             config=self.default_context_cache.config.model_copy(deep=True),
             system_config=self.default_context_cache.system_config.model_copy(

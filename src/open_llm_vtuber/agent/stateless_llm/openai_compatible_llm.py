@@ -4,6 +4,7 @@ endpoints for language generation.
 """
 
 from typing import AsyncIterator, List, Dict, Any
+from urllib.parse import urlsplit
 from openai import (
     AsyncStream,
     AsyncOpenAI,
@@ -60,6 +61,12 @@ class AsyncLLM(StatelessLLMInterface):
         self.model = model
         self.temperature = temperature
         self.unconfigured = llm_api_key == "unconfigured"
+        self._realtime_options = (
+            {"reasoning_effort": "low", "realtime": True}
+            if model == "mercury-3"
+            and urlsplit(base_url or "").hostname == "api.inceptionlabs.ai"
+            else None
+        )
         self.client = AsyncOpenAI(
             base_url=base_url,
             organization=organization_id,
@@ -123,6 +130,7 @@ class AsyncLLM(StatelessLLMInterface):
                 stream=True,
                 temperature=self.temperature,
                 tools=available_tools,
+                extra_body=self._realtime_options,
             )
             logger.debug(
                 f"Tool Support: {self.support_tools}, Available tools: {available_tools}"
