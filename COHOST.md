@@ -13,6 +13,8 @@ Open [http://localhost:12393](http://localhost:12393) in Chromium or Chrome. The
 
 Set `FISH_AUDIO_API_KEY` in the server's environment for microphone transcription and speech. Set `COHOST_LLM_API_KEY` for the configured OpenAI-compatible chat provider. You can also set `FISH_AUDIO_VOICE_ID` and `FISH_AUDIO_TTS_MODEL` to select the voice and speech model. The included configuration uses Fish Audio's turn-based `transcribe-1-pro` ASR and `s2.1-pro-free` synthesis. The browser detects speech turns and the server transcribes each completed turn. Fish Audio accepts the key only on the server.
 
+With the default `unconfigured` chat key, you can type `hi` in the main chat to try a built-in greeting. General replies need a valid [Inception API key](https://docs.inceptionlabs.ai/get-started/authentication) when using the default `mercury-3` model. Set `COHOST_LLM_API_KEY` in the service's environment and restart the service. For a public preview with no login, keep the provider key in a privately accessible instance.
+
 ## Try the voice on the live page
 
 Generate the sample once from the co-host's checkout. The script prompts for your Fish Audio API key when the shell and config have no key set.

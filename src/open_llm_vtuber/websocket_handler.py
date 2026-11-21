@@ -19,6 +19,7 @@ from .cohost import (
     motion_command,
 )
 from .agent.output_types import DisplayText
+from .agent.stateless_llm.openai_compatible_llm import ChatProviderError
 from .conversations.conversation_utils import (
     finalize_conversation_turn,
     send_conversation_start_signals,
@@ -694,6 +695,9 @@ class WebSocketHandler:
                 item.answer = draft
             session.metrics["drafts"] += 1
             status = "Review the draft before speaking."
+        except ChatProviderError as exc:
+            session.metrics["draft_errors"] += 1
+            status = f"{exc} You can type a reply."
         except Exception as exc:
             logger.warning("Co-host draft failed ({})", type(exc).__name__)
             session.metrics["draft_errors"] += 1

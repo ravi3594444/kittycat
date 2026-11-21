@@ -16,7 +16,7 @@ from ..stateless_llm.stateless_llm_interface import StatelessLLMInterface
 from ..stateless_llm.claude_llm import AsyncLLM as ClaudeAsyncLLM
 from ..stateless_llm.openai_compatible_llm import AsyncLLM as OpenAICompatibleAsyncLLM
 from ...chat_history_manager import get_history
-from ...cohost import LITTLE_CAT_SPEECH_GUIDANCE
+from ...cohost import KITTY_AVATARS, LITTLE_CAT_SPEECH_GUIDANCE, find_acknowledgment
 from ..transformers import (
     sentence_divider,
     actions_extractor,
@@ -580,6 +580,25 @@ class BasicMemoryAgent(AgentInterface):
                     self._add_message(current_turn_text, "assistant")
                 return
 
+    def _preview_acknowledgment(self, input_data: BatchInput) -> str | None:
+        if (
+            not isinstance(self._llm, OpenAICompatibleAsyncLLM)
+            or not self._llm.unconfigured
+            or not self._live2d_model
+            or self._live2d_model.model_info.get("name") not in KITTY_AVATARS
+            or input_data.images
+            or input_data.files
+            or len(input_data.texts) != 1
+            or (input_data.metadata or {}).get("skip_memory")
+        ):
+            return None
+
+        text = input_data.texts[0]
+        if text.source == TextSource.INPUT and (match := find_acknowledgment(text.content)):
+            _, replies = match
+            return replies[0].format(viewer="")
+        return None
+
     def _chat_function_factory(
         self,
     ) -> Callable[[BatchInput], AsyncIterator[Union[SentenceOutput, Dict[str, Any]]]]:
@@ -601,6 +620,11 @@ class BasicMemoryAgent(AgentInterface):
             self.prompt_mode_flag = False
 
             messages = self._to_messages(input_data)
+            if preview_reply := self._preview_acknowledgment(input_data):
+                self._add_message(preview_reply, "assistant")
+                yield preview_reply
+                return
+
             tools = None
             tool_mode = None
             llm_supports_native_tools = False

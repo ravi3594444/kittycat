@@ -9,7 +9,7 @@ from openai import (
     AsyncOpenAI,
     APIError,
     APIConnectionError,
-    RateLimitError,
+    APIStatusError,
     NotGiven,
     NOT_GIVEN,
 )
@@ -19,6 +19,20 @@ from loguru import logger
 
 from .stateless_llm_interface import StatelessLLMInterface
 from ...mcpp.types import ToolCallObject
+
+
+class ChatProviderError(RuntimeError):
+    """A chat provider failure with a message safe to show to the operator."""
+
+
+CHAT_PROVIDER_MESSAGES = {
+    400: "The AI provider rejected the chat request. Check the configured model in the server settings.",
+    401: "The AI provider rejected its API key. Check the chat provider key on the server.",
+    402: "The AI provider requires credits for this chat request.",
+    403: "The AI provider denied access. Check that the server key can use this model.",
+    404: "The AI provider could not find the chat endpoint or model. Check the server settings.",
+    429: "The AI provider reached its request limit. Try again shortly.",
+}
 
 
 class AsyncLLM(StatelessLLMInterface):
@@ -45,6 +59,7 @@ class AsyncLLM(StatelessLLMInterface):
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
+        self.unconfigured = llm_api_key == "unconfigured"
         self.client = AsyncOpenAI(
             base_url=base_url,
             organization=organization_id,
@@ -76,10 +91,13 @@ class AsyncLLM(StatelessLLMInterface):
         - List[ChoiceDeltaToolCall]: The tool calls detected in the response.
 
         Raises:
-        - APIConnectionError: When the server cannot be reached
-        - RateLimitError: When a 429 status code is received
-        - APIError: For other API-related errors
+        - ChatProviderError: When chat generation is unavailable
         """
+        if self.unconfigured:
+            raise ChatProviderError(
+                "AI chat needs a provider key. Set COHOST_LLM_API_KEY on the server."
+            )
+
         stream = None
         # Tool call related state variables
         accumulated_tool_calls = {}
@@ -201,32 +219,30 @@ class AsyncLLM(StatelessLLMInterface):
 
                 yield complete_tool_calls
 
-        except APIConnectionError as e:
-            logger.error(
-                f"Error calling the chat endpoint: Connection error. Failed to connect to the LLM API. \nCheck the configurations and the reachability of the LLM backend. \nSee the logs for details. \nTroubleshooting with documentation: https://open-llm-vtuber.github.io/docs/faq#%E9%81%87%E5%88%B0-error-calling-the-chat-endpoint-%E9%94%99%E8%AF%AF%E6%80%8E%E4%B9%88%E5%8A%9E \n{e.__cause__}"
+        except APIConnectionError as exc:
+            logger.warning(
+                "Could not reach chat provider for {} ({})", self.model, type(exc).__name__
             )
-            yield "Error calling the chat endpoint: Connection error. Failed to connect to the LLM API. Check the configurations and the reachability of the LLM backend. See the logs for details. Troubleshooting with documentation: [https://open-llm-vtuber.github.io/docs/faq#%E9%81%87%E5%88%B0-error-calling-the-chat-endpoint-%E9%94%99%E8%AF%AF%E6%80%8E%E4%B9%88%E5%8A%9E]"
+            raise ChatProviderError(
+                "The server could not reach the AI provider. Try again shortly."
+            ) from None
 
-        except RateLimitError as e:
-            logger.error(
-                f"Error calling the chat endpoint: Rate limit exceeded: {e.response}"
-            )
-            yield "Error calling the chat endpoint: Rate limit exceeded. Please try again later. See the logs for details."
-
-        except APIError as e:
-            if "does not support tools" in str(e):
+        except APIError as exc:
+            if "does not support tools" in str(exc):
                 self.support_tools = False
                 logger.warning(
                     f"{self.model} does not support tools. Disabling tool support."
                 )
                 yield "__API_NOT_SUPPORT_TOOLS__"
                 return
-            logger.error(f"LLM API: Error occurred: {e}")
-            logger.info(f"Base URL: {self.base_url}")
-            logger.info(f"Model: {self.model}")
-            logger.info(f"Messages: {messages}")
-            logger.info(f"temperature: {self.temperature}")
-            yield "Error calling the chat endpoint: Error occurred while generating response. See the logs for details."
+            status = exc.status_code if isinstance(exc, APIStatusError) else None
+            logger.warning(
+                "Chat provider failed for {} (HTTP {}, {})", self.model, status, type(exc).__name__
+            )
+            message = CHAT_PROVIDER_MESSAGES.get(
+                status, "The AI provider could not generate a reply. Try again shortly."
+            )
+            raise ChatProviderError(message) from None
 
         finally:
             # make sure the stream is properly closed

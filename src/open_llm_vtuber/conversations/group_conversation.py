@@ -6,12 +6,14 @@ from fastapi import WebSocket
 import numpy as np
 
 from ..agent.output_types import AudioOutput, SentenceOutput
+from ..agent.stateless_llm.openai_compatible_llm import ChatProviderError
 
 from .conversation_utils import (
     create_batch_input,
     process_agent_output,
     process_user_input,
     finalize_conversation_turn,
+    show_chat_provider_error,
     cleanup_conversation,
     EMOJI_LIST,
 )
@@ -380,6 +382,10 @@ async def process_member_response(
                     f"Received unexpected item type from agent chat stream: {type(output_item)}"
                 )
 
+    except ChatProviderError as exc:
+        await show_chat_provider_error(
+            current_ws_send, str(exc), show_in_caption=not full_response
+        )
     except Exception as e:
         logger.exception(f"Error processing group member response stream: {e}")
         await current_ws_send(

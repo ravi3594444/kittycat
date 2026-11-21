@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+KITTY_AVATARS = frozenset({"little_cat", "pawsrig"})
 VOICE_DEMO_PATH = Path("voice-demo.wav")
 VOICE_DEMO_TEXT = (
     "Hey, you made it! I'm Little Cat. "
@@ -63,6 +64,14 @@ def motion_command(text: str) -> str | None:
     for prefix in ("please ", "can you ", "could you ", "cat "):
         phrase = phrase.removeprefix(prefix)
     return COMMAND_MOTIONS.get(phrase.removesuffix(" please"))
+
+
+def find_acknowledgment(text: str) -> tuple[str, tuple[str, ...]] | None:
+    phrase = " ".join(text.casefold().split()).strip(" !?.")
+    for category, (phrases, replies) in ACKNOWLEDGMENTS.items():
+        if phrase in phrases:
+            return category, replies
+    return None
 
 
 class ViewerComment(BaseModel):
@@ -143,10 +152,8 @@ class CohostSession:
             return "queued" if self.add("lesson", "Share the current lesson notes") else "full"
         name = " ".join((comment.viewer_name or "").split())
         name = "".join(char for char in name if char.isprintable()).strip() or None
-        short_comment = normalized.strip(" !?.")
-        for category, (phrases, replies) in ACKNOWLEDGMENTS.items():
-            if short_comment not in phrases:
-                continue
+        if acknowledgment := find_acknowledgment(text):
+            category, replies = acknowledgment
             item = self.add("acknowledgment", text, name)
             if item is None:
                 return "full"

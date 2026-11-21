@@ -143,6 +143,14 @@ async def send_conversation_start_signals(websocket_send: WebSocketSend) -> None
     await websocket_send(json.dumps({"type": "full-text", "text": "Thinking..."}))
 
 
+async def show_chat_provider_error(
+    websocket_send: WebSocketSend, message: str, *, show_in_caption: bool
+) -> None:
+    await websocket_send(json.dumps({"type": "error", "message": message}))
+    if show_in_caption:
+        await websocket_send(json.dumps({"type": "full-text", "text": message}))
+
+
 async def process_user_input(
     user_input: Union[str, np.ndarray],
     asr_engine: ASRInterface,

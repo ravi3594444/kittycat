@@ -11,6 +11,7 @@ from .conversation_utils import (
     process_user_input,
     finalize_conversation_turn,
     send_conversation_end_signal,
+    show_chat_provider_error,
     cleanup_conversation,
     EMOJI_LIST,
 )
@@ -21,6 +22,7 @@ from ..service_context import ServiceContext
 
 # Import necessary types from agent outputs
 from ..agent.output_types import SentenceOutput, AudioOutput
+from ..agent.stateless_llm.openai_compatible_llm import ChatProviderError
 
 
 async def process_single_conversation(
@@ -127,6 +129,10 @@ async def process_single_conversation(
                     )
                     logger.debug(f"Unexpected item content: {output_item}")
 
+        except ChatProviderError as exc:
+            await show_chat_provider_error(
+                websocket_send, str(exc), show_in_caption=not full_response
+            )
         except Exception as e:
             logger.exception(
                 f"Error processing agent response stream: {e}"
