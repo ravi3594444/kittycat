@@ -41,10 +41,10 @@ class TTSEngine(TTSInterface):
             "latency": self.latency,
         }
         if self.style == "little_cat":
-            body["prosody"] = {"speed": 1.04, "normalize_loudness": True}
+            body["prosody"] = {"volume": -4, "normalize_loudness": True}
             if self.model in {"s2-pro", "s2.1-pro", "s2.1-pro-free"}:
                 body["text"] = (
-                    "[bright, warmly playful, lightly expressive, with natural pauses] "
+                    "[warm, softly expressive, relaxed pitch, with natural pauses] "
                     + text
                 )
         return {

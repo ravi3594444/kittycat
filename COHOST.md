@@ -27,7 +27,7 @@ uv run --no-project --python 3.12 --with-requirements requirements-cohost.txt py
 
 Refresh the site and choose **Play voice demo** under **Co-host controls**. The sample plays through the avatar's speech animation and lip sync. The browser replays the generated recording, and each click uses that recording.
 
-Fish Audio uses Little Cat's playful delivery by default. Set `style: neutral` in `fish_api_tts` for plain delivery. To audition a different Fish Audio voice, set `FISH_AUDIO_VOICE_ID` in the shell and run the sample command again.
+Fish Audio uses a softer, expressive delivery and requests 4 dB of volume reduction for Little Cat. Set `style: neutral` in `fish_api_tts` for the voice preset's own delivery. To audition a different Fish Audio voice, set `FISH_AUDIO_VOICE_ID` in the shell and run the sample command again. Start with [Sarah](https://fish.audio/m/933563129e564b19a115bedd57b7406a/) or [Calm Young Female](https://fish.audio/m/6a76d481ddb54aa5ab587fb35adfd49b/), and audition both with the same script. Fish S2 accepts [inline emotion cues](https://docs.fish.audio/developer-guide/core-features/emotions) such as `[soft smile]`, `[gently curious]`, and `[quietly delighted]`.
 
 ## Use the co-host
 
