@@ -1,0 +1,6 @@
+character_config:
+  conf_name: 'Little Cat (PawsRig)'
+  conf_uid: 'little_cat_pawsrig'
+  live2d_model_name: 'pawsrig'
+  character_name: 'Little Cat'
+  avatar: 'pawsrig.png'

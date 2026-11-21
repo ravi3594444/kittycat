@@ -13,12 +13,24 @@ Open [http://localhost:12393](http://localhost:12393) in Chromium or Chrome. The
 
 Set `FISH_AUDIO_API_KEY` in the server's environment for microphone transcription and speech. Set `COHOST_LLM_API_KEY` for the configured OpenAI-compatible chat provider. You can also set `FISH_AUDIO_VOICE_ID` and `FISH_AUDIO_TTS_MODEL` to select the voice and speech model. The included configuration uses Fish Audio's turn-based `transcribe-1-pro` ASR and `s2.1-pro-free` synthesis. The browser detects speech turns and the server transcribes each completed turn. Fish Audio accepts the key only on the server.
 
+## Try the voice on the live page
+
+Generate the sample once from the co-host's checkout. The script prompts for your Fish Audio API key when the shell and config have no key set.
+
+```sh
+uv run --no-project --python 3.12 --with-requirements requirements-cohost.txt python -m scripts.generate_voice_demo
+```
+
+Refresh the site and choose **Play voice demo** under **Co-host controls**. The sample plays through the avatar's speech animation and lip sync. The browser replays the generated recording, and each click uses that recording.
+
+Fish Audio uses Little Cat's playful delivery by default. Set `style: neutral` in `fish_api_tts` for plain delivery. To audition a different Fish Audio voice, set `FISH_AUDIO_VOICE_ID` in the shell and run the sample command again.
+
 ## Use the co-host
 
 Open **Co-host controls**.
 
-- Enter `!wave`, `!dance`, `!meow`, or `!nod` under **Test a viewer comment**. Phrases like `can you wave your paw?` also work. Animations go straight to the rig, with a short cooldown between commands. `!meow` is a silent facial animation.
-- Save lesson notes. Viewer questions appear for review after filtering and deduplication. Select **Draft** to generate a short answer from the notes, edit the draft as needed, then select **Approve and speak**. The browser displays the caption and moves the cat's mouth during audio playback. The caption remains available if synthesis fails.
+- Enter `!wave`, `!dance`, `!meow`, or `!nod` under **Test a viewer comment**. PawsRig also supports `!jump`, `!spin`, `!clap`, `!heart`, and `!pet`. Phrases like `can you wave your paw?` also work. Animations go straight to the rig, with a short cooldown between commands. `!meow` is a silent facial animation.
+- Save lesson notes. Little Cat tilts its head when a comment enters review. Greetings, thanks, and confirmations get a short acknowledgment you can edit. Viewer questions appear for review after filtering and deduplication. Select **Draft** to generate a short answer from the notes, edit the draft as needed, then select **Approve and speak**. The browser displays the caption and moves the cat's mouth during audio playback. The caption remains available if synthesis fails.
 - **Suggest transition** queues a proactive prompt. A viewer's `!lesson` comment queues a read-only lookup of the current lesson notes. The operator approves the spoken result. The viewer draft path has no external tool access.
 - **Mute and hold** interrupts playback and pauses new spoken turns. A live mic interruption also yields the floor. The session panel shows comment, motion, approval, caption fallback, and response timing counts.
 
@@ -35,13 +47,19 @@ curl http://localhost:12393/api/cohost/comments \
   -d '{"source":"live-relay","event_id":"comment-123","text":"!wave"}'
 ```
 
-Use the platform comment ID as `event_id` when available. The bundled optional BiliBili bridge sends the same viewer-comment event through `/proxy-ws`. Enable `system_config.enable_proxy`, configure the BiliBili bridge and room, then connect the operator browser to the same proxy using its WebSocket settings. TikTok Live comments need an authorized relay that forwards them to the HTTP endpoint.
+Use the platform comment ID as `event_id` when available. Pass `viewer_name` to include the viewer’s display name in review and occasional spoken acknowledgments. The bundled optional BiliBili bridge sends the same viewer-comment event through `/proxy-ws`. Enable `system_config.enable_proxy`, configure the BiliBili bridge and room, then connect the operator browser to the same proxy using its WebSocket settings. TikTok Live comments need an authorized relay that forwards them to the HTTP endpoint.
 
 Keep the operator page on localhost or behind your private access layer. The relay token protects HTTP intake. The existing operator WebSocket is for trusted local clients.
 
 ## Replace models
 
 - **AI model** — Set `COHOST_LLM_MODEL`. When changing to a different OpenAI-compatible provider, set `COHOST_LLM_BASE_URL` and `COHOST_LLM_API_KEY` as well. Restart the server. You can also set these in the `openai_compatible_llm` section of `conf.yaml`.
-- **Avatar** — Add the new model folder to `live2d-models/`, add an entry in `model_dict.json`, and select its name in `character_config.live2d_model_name`. For each command you want to support, map `wave`, `dance`, `meow`, or `nod` in the entry's `motionMap` to a motion group in the model manifest. Set up `Idle`, `Talk`, and the model's `LipSync` parameter group for the corresponding behaviors. Character overrides in `characters/` can also switch avatars in the running app.
+- **Avatar** — Select **Little Cat (PawsRig)** or **Little Cat (Classic)** in the character menu. PawsRig is the default on new installs. In an existing `conf.yaml`, set `character_config.live2d_model_name` to `pawsrig` and `avatar` to `pawsrig.png` to launch with the new model. To install another Live2D avatar, put its assets in `live2d-models/`, register it in `model_dict.json`, and select its name in `character_config.live2d_model_name`. Map supported commands to manifest motion groups in `motionMap`, and set up `Idle`, `Talk`, and `LipSync` for idle and voice animation.
+
+## Update PawsRig
+
+The uploaded PawsRig canvas rig lives in `frontend/pawsrig/`. The built viewer still loads the classic Live2D model for its existing audio playback path. PawsRig renders in the same viewport and reads the `cohost:voice` event from the bundled viewer to sync its mouth using the current audio time and volume.
+
+After editing the TypeScript rig, rebuild its browser module from the repository root with `npx --yes esbuild@0.25.12 frontend/pawsrig/stage.ts --bundle --format=esm --target=es2022 --outfile=frontend/pawsrig/stage.js`. The Python server serves this bundle directly.
 
 Little Cat was created by Ezri. The model and its attribution terms are bundled under `live2d-models/little_cat/`.

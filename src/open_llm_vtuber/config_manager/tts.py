@@ -316,6 +316,7 @@ class FishAPITTSConfig(I18nMixin):
     latency: Literal["normal", "balanced"] = "balanced"
     base_url: str = "https://api.fish.audio"
     model: str = "s2.1-pro-free"
+    style: Literal["little_cat", "neutral"] = "little_cat"
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "api_key": Description(

@@ -170,7 +170,7 @@ class BiliBiliLivePlatform(LivePlatformInterface):
         self._message_handlers.append(handler)
         logger.debug("Registered new message handler")
 
-    async def _handle_danmaku(self, danmaku_text: str):
+    async def _handle_danmaku(self, danmaku_text: str, viewer_name: str | None = None):
         """
         Process received danmaku message and forward it to VTuber.
 
@@ -179,11 +179,11 @@ class BiliBiliLivePlatform(LivePlatformInterface):
         """
         try:
             # Send danmaku directly to proxy
-            await self._send_to_proxy(danmaku_text)
+            await self._send_to_proxy(danmaku_text, viewer_name)
         except Exception as e:
             logger.error(f"Error forwarding danmaku to proxy: {e}")
 
-    async def _send_to_proxy(self, text: str) -> bool:
+    async def _send_to_proxy(self, text: str, viewer_name: str | None = None) -> bool:
         """
         Send danmaku text to the proxy.
 
@@ -198,7 +198,12 @@ class BiliBiliLivePlatform(LivePlatformInterface):
             return False
 
         try:
-            message = {"type": "viewer-comment", "source": "bilibili", "text": text}
+            message = {
+                "type": "viewer-comment",
+                "source": "bilibili",
+                "text": text,
+                "viewer_name": viewer_name[:60] if viewer_name else None,
+            }
             await self._websocket.send(json.dumps(message))
             logger.info(f"Sent danmaku to VTuber: {text}")
             return True
@@ -282,7 +287,7 @@ class BiliBiliLivePlatform(LivePlatformInterface):
                 message: The danmaku message
             """
             logger.debug(f"[Room {client.room_id}] {message.uname}: {message.msg}")
-            asyncio.create_task(self.platform._handle_danmaku(message.msg))
+            asyncio.create_task(self.platform._handle_danmaku(message.msg, message.uname))
 
         def _on_heartbeat(
             self, client: blivedm.BLiveClient, message: web_models.HeartbeatMessage

@@ -10,7 +10,14 @@ import numpy as np
 from loguru import logger
 
 from .service_context import ServiceContext
-from .cohost import CohostSession, MOTION_COMMANDS, ViewerComment, motion_command
+from .cohost import (
+    CohostSession,
+    MOTION_COMMANDS,
+    ViewerComment,
+    VOICE_DEMO_PATH,
+    VOICE_DEMO_TEXT,
+    motion_command,
+)
 from .agent.output_types import DisplayText
 from .conversations.conversation_utils import (
     finalize_conversation_turn,
@@ -608,6 +615,8 @@ class WebSocketHandler:
         result = session.ingest(comment, self.blocked_terms)
         if result in MOTION_COMMANDS:
             result = await self._play_cohost_motion(client_uid, result)
+        elif result == "queued" and not session.hold and not self._cohost_busy(client_uid):
+            await self._play_cohost_motion(client_uid, "listen")
         await self.client_connections[client_uid].send_json(session.status())
         return result
 
@@ -632,6 +641,15 @@ class WebSocketHandler:
                 await self._handle_interrupt(websocket, client_uid, {})
                 await websocket.send_json({"type": "interrupt-signal"})
             status = "Co-host paused." if session.hold else "Co-host ready."
+        elif action == "voice-demo":
+            if session.hold or session.instructor_speaking or self._cohost_busy(client_uid):
+                status = "Wait for the floor to be clear before playing the voice demo."
+            elif not VOICE_DEMO_PATH.is_file():
+                status = "The voice demo needs to be generated on the server."
+            else:
+                self.current_conversation_tasks[client_uid] = asyncio.create_task(
+                    self._play_voice_demo(websocket, client_uid, session)
+                )
         elif action == "suggest":
             session.add("transition", "Suggest the next lesson transition.")
         elif action == "dismiss" and item:
@@ -666,9 +684,11 @@ class WebSocketHandler:
         try:
             if item.kind == "lesson":
                 item.answer = item.lesson[:450] or "The instructor hasn't added lesson notes yet."
-            else:
+            elif item.kind != "acknowledgment":
                 agent = self.client_contexts[client_uid].agent_engine
-                draft = await asyncio.wait_for(agent.draft_cohost(item.text, item.lesson), 25)
+                draft = await asyncio.wait_for(
+                    agent.draft_cohost(item.text, item.lesson, item.viewer_name), 25
+                )
                 if not draft or draft.startswith("Error calling the chat endpoint"):
                     raise ValueError("Empty reply")
                 item.answer = draft
@@ -680,6 +700,25 @@ class WebSocketHandler:
             status = "Draft unavailable. You can type a reply or dismiss the item."
         if client_uid in self.client_connections:
             await websocket.send_json(session.status(status))
+
+    async def _play_voice_demo(self, websocket, client_uid, session):
+        character = self.client_contexts[client_uid].character_config
+        display = DisplayText(VOICE_DEMO_TEXT, character.character_name, character.avatar)
+        tts = TTSTaskManager()
+        try:
+            payload = await asyncio.to_thread(
+                prepare_audio_payload,
+                audio_path=str(VOICE_DEMO_PATH),
+                display_text=display,
+                forwarded=True,
+            )
+            await send_conversation_start_signals(websocket.send_text)
+            await tts.queue_audio_payload(payload, websocket.send_text)
+            await finalize_conversation_turn(tts, websocket.send_text, client_uid)
+        except (OSError, ValueError):
+            await websocket.send_json(session.status("The voice demo could not play."))
+        finally:
+            tts.clear()
 
     async def _speak_cohost(self, websocket, client_uid, session, item, answer):
         context = self.client_contexts[client_uid]

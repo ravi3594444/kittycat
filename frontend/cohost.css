@@ -30,3 +30,12 @@
 .cohost-panel article p { margin: 0 0 4px; overflow-wrap: anywhere; }
 .cohost-panel small { display: block; margin-top: 10px; color: #c1cbda; }
 .cohost-status { margin: 2px 0 8px; }
+
+.pawsrig-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.pawsrig-fallback { visibility: hidden; }

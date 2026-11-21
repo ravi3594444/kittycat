@@ -9,10 +9,12 @@
       <div class="cohost-row">
         <button type="button" data-control="hold">Mute and hold</button>
         <button type="button" data-control="suggest">Suggest transition</button>
+        <button type="button" data-control="voice-demo" hidden>Play voice demo</button>
       </div>
       <label>Lesson notes <textarea name="lesson" rows="3" maxlength="4000"></textarea></label>
       <button type="button" data-control="lesson">Save notes</button>
       <form>
+        <label>Viewer name (optional) <input name="viewer_name" maxlength="60"></label>
         <label>Test a viewer comment <input name="comment" maxlength="500" placeholder="!wave or a lesson question" required></label>
         <button type="submit">Send test comment</button>
       </form>
@@ -26,6 +28,7 @@
   const list = panel.querySelector(".cohost-review");
   const metrics = panel.querySelector(".cohost-metrics");
   const holdButton = panel.querySelector("[data-control=hold]");
+  const demoButton = panel.querySelector("[data-control=voice-demo]");
   const edits = new Map();
   let socket;
   let modelName;
@@ -35,6 +38,10 @@
   let pendingMotion;
   let motionTimer;
   let savedLesson = "";
+  let usePawsRig = false;
+  let pawsRig;
+  let latestSpeech;
+  let pawsRigLoad;
 
   function send(message) {
     if (socket?.readyState !== WebSocket.OPEN) {
@@ -49,6 +56,27 @@
     return send({ type: "cohost-control", action, ...values });
   }
 
+  function selectRenderer(renderer) {
+    const enabled = renderer === "pawsrig";
+    if (enabled === usePawsRig) return;
+    usePawsRig = enabled;
+    if (!enabled) {
+      pawsRig?.destroy();
+      pawsRig = undefined;
+      return;
+    }
+
+    pawsRigLoad ??= import("./pawsrig/stage.js");
+    pawsRigLoad.then(({ mountPawsRig }) => {
+      if (!usePawsRig || pawsRig) return;
+      pawsRig = mountPawsRig();
+      if (latestSpeech) pawsRig.useSpeech(latestSpeech);
+    }).catch(() => {
+      pawsRigLoad = undefined;
+      if (usePawsRig) status.textContent = "The PawsRig avatar could not load.";
+    });
+  }
+
   function playMotion(event) {
     if (event.model !== modelName) return;
     clearTimeout(motionTimer);
@@ -57,11 +85,21 @@
 
     const tryPlay = () => {
       if (pendingMotion !== event || event.model !== modelName) return;
-      const model = window.getLive2DManager?.()?.getModel(0);
-      if (model?._initialized && model._modelSetting?.getMotionCount(event.group) &&
-          model._modelHomeDir?.endsWith(event.modelPath)) {
-        model.startRandomMotion(event.group, 3);
-        status.textContent = `Playing ${event.action}.`;
+      let playing;
+      if (usePawsRig) {
+        playing = pawsRig?.play(event.group);
+      } else {
+        const model = window.getLive2DManager?.()?.getModel(0);
+        if (model?._initialized && model._modelSetting?.getMotionCount(event.group) &&
+            model._modelHomeDir?.endsWith(event.modelPath)) {
+          model.startRandomMotion(event.group, 3);
+          playing = true;
+        }
+      }
+      if (playing) {
+        status.textContent = event.action === "listen"
+          ? "Little Cat noticed the comment."
+          : `Playing ${event.action}.`;
         pendingMotion = null;
       } else if (performance.now() < deadline) {
         motionTimer = setTimeout(tryPlay, 70);
@@ -95,7 +133,7 @@
         card = document.createElement("article");
         card.dataset.id = item.id;
         const question = document.createElement("p");
-        question.textContent = item.text;
+        question.textContent = item.viewer_name ? `${item.viewer_name} · ${item.text}` : item.text;
         const reply = document.createElement("textarea");
         reply.rows = 2;
         reply.maxLength = 450;
@@ -104,8 +142,10 @@
         reply.addEventListener("input", () => edits.set(item.id, reply.value));
         const actions = document.createElement("div");
         actions.className = "cohost-row";
+        if (item.kind !== "acknowledgment") {
+          actions.append(reviewButton("Draft", "draft", item.id));
+        }
         actions.append(
-          reviewButton("Draft", "draft", item.id),
           reviewButton("Approve and speak", "speak", item.id),
           reviewButton("Dismiss", "dismiss", item.id),
         );
@@ -121,6 +161,7 @@
   function update(message) {
     if (message.type === "set-model-and-conf") {
       modelName = message.model_info?.name;
+      selectRenderer(message.model_info?.renderer);
       clientId = message.client_uid ?? clientId;
       pendingMotion = null;
     } else if (message.type === "avatar-motion") {
@@ -128,6 +169,8 @@
     } else if (message.type === "cohost-status") {
       if (message.hold && !hold) stopOutput?.();
       hold = message.hold;
+      demoButton.hidden = !message.voice_demo;
+      demoButton.disabled = hold;
       holdButton.textContent = hold ? "Resume co-host" : "Mute and hold";
       holdButton.setAttribute("aria-pressed", String(hold));
       if (message.message || ["Connecting…", "The co-host is disconnected."].includes(status.textContent)) {
@@ -175,9 +218,25 @@
   panel.querySelector("form").addEventListener("submit", event => {
     event.preventDefault();
     const input = event.target.elements.comment;
-    if (send({ type: "viewer-comment", text: input.value, source: "operator-test" })) {
+    if (send({
+      type: "viewer-comment",
+      text: input.value,
+      viewer_name: event.target.elements.viewer_name.value.trim() || undefined,
+      source: "operator-test",
+    })) {
       input.value = "";
     }
+  });
+
+  window.addEventListener("cohost:voice", event => {
+    latestSpeech = event.detail;
+    pawsRig?.useSpeech(latestSpeech);
+    const { audio } = latestSpeech;
+    function releaseSpeech() {
+      if (latestSpeech?.audio === audio) latestSpeech = undefined;
+    }
+    audio.addEventListener("pause", releaseSpeech, { once: true });
+    audio.addEventListener("ended", releaseSpeech, { once: true });
   });
 
   window.addEventListener("cohost:socket", event => {
@@ -195,6 +254,7 @@
       edits.clear();
       lesson.value = savedLesson = "";
       pendingMotion = null;
+      demoButton.hidden = true;
       hold = false;
       holdButton.textContent = "Mute and hold";
     });

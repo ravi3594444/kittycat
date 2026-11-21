@@ -13,11 +13,21 @@
           "File": "motions/idle.motion3.json",
           "FadeInTime": 0.14,
           "FadeOutTime": 0.25
+        },
+        {
+          "File": "motions/idle-look.motion3.json",
+          "FadeInTime": 0.14,
+          "FadeOutTime": 0.25
         }
       ],
       "Talk": [
         {
           "File": "motions/talk.motion3.json",
+          "FadeInTime": 0.14,
+          "FadeOutTime": 0.25
+        },
+        {
+          "File": "motions/talk-nod.motion3.json",
           "FadeInTime": 0.14,
           "FadeOutTime": 0.25
         }
@@ -46,6 +56,13 @@
       "Nod": [
         {
           "File": "motions/nod.motion3.json",
+          "FadeInTime": 0.14,
+          "FadeOutTime": 0.25
+        }
+      ],
+      "Listen": [
+        {
+          "File": "motions/listen.motion3.json",
           "FadeInTime": 0.14,
           "FadeOutTime": 0.25
         }

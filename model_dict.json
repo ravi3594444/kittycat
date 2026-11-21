@@ -42,7 +42,33 @@
             "wave": "Wave",
             "dance": "Dance",
             "meow": "Meow",
-            "nod": "Nod"
+            "nod": "Nod",
+            "listen": "Listen"
+        }
+    },
+    {
+        "name": "pawsrig",
+        "description": "PawsRig animated 2D streaming cat",
+        "renderer": "pawsrig",
+        "url": "/live2d-models/little_cat/little_cat.model3.json",
+        "kScale": 0.5,
+        "initialXshift": 0,
+        "initialYshift": 0,
+        "kXOffset": 1150,
+        "idleMotionGroupName": "Idle",
+        "emotionMap": {},
+        "tapMotions": {},
+        "motionMap": {
+            "wave": "wave",
+            "dance": "dance",
+            "meow": "meow",
+            "nod": "nod",
+            "listen": "listen",
+            "jump": "jump",
+            "spin": "spin",
+            "clap": "clap",
+            "heart": "heart",
+            "pet": "pet"
         }
     }
 ]

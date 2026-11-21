@@ -46,34 +46,12 @@ class TTSTaskManager:
             tts_engine: TTS engine instance
             websocket_send: WebSocket send function
         """
+        current_sequence = self._reserve_sequence(websocket_send)
         if len(re.sub(r'[\s.,!?，。！？\'"』」）】\s]+', "", tts_text)) == 0:
-            logger.debug("Empty TTS text, sending silent display payload")
-            # Get current sequence number for silent payload
-            current_sequence = self._sequence_counter
-            self._sequence_counter += 1
-
-            # Start sender task if not running
-            if not self._sender_task or self._sender_task.done():
-                self._sender_task = asyncio.create_task(
-                    self._process_payload_queue(websocket_send)
-                )
-
             await self._send_silent_payload(display_text, actions, current_sequence)
             return
 
-        logger.debug(
-            f"🏃Queuing TTS task for: '''{tts_text}''' (by {display_text.name})"
-        )
-
-        # Get current sequence number
-        current_sequence = self._sequence_counter
-        self._sequence_counter += 1
-
-        # Start sender task if not running
-        if not self._sender_task or self._sender_task.done():
-            self._sender_task = asyncio.create_task(
-                self._process_payload_queue(websocket_send)
-            )
+        logger.debug(f"Queuing TTS task for: {tts_text!r}")
 
         # Create and queue the TTS task
         task = asyncio.create_task(
@@ -87,6 +65,20 @@ class TTSTaskManager:
             )
         )
         self.task_list.append(task)
+
+    async def queue_audio_payload(self, payload: dict, websocket_send: WebSocketSend) -> None:
+        """Queue an already prepared audio payload for ordered playback."""
+        sequence = self._reserve_sequence(websocket_send)
+        await self._payload_queue.put((payload, sequence))
+
+    def _reserve_sequence(self, websocket_send: WebSocketSend) -> int:
+        sequence = self._sequence_counter
+        self._sequence_counter += 1
+        if not self._sender_task or self._sender_task.done():
+            self._sender_task = asyncio.create_task(
+                self._process_payload_queue(websocket_send)
+            )
+        return sequence
 
     async def _process_payload_queue(self, websocket_send: WebSocketSend) -> None:
         """

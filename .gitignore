@@ -10,14 +10,18 @@ conf.yaml.*
 /live2d-models/*
 !/live2d-models/mao_pro
 !/live2d-models/shizuku
+!/live2d-models/little_cat
 
 # ignore non-default character configs
 /characters/*
 !/characters/README.md
+!/characters/pawsrig.yaml
+!/characters/little_cat_classic.yaml
 # but all of the defaults are already tracked, so no need to un-ignore them
 
 # ignore avatars
 avatars/*
+!/avatars/pawsrig.png
 
 # macOS system files
 .DS_Store
@@ -77,3 +81,5 @@ private/
 mcp_servers.json
 
 .vscode/
+# Generated on the co-host server
+/voice-demo.wav

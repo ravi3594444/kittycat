@@ -1,0 +1,6 @@
+character_config:
+  conf_name: 'Little Cat (Classic)'
+  conf_uid: 'little_cat_classic'
+  live2d_model_name: 'little_cat'
+  character_name: 'Little Cat'
+  avatar: 'little_cat.png'

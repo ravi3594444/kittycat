@@ -3,17 +3,51 @@
 import re
 from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 from time import monotonic
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+VOICE_DEMO_PATH = Path("voice-demo.wav")
+VOICE_DEMO_TEXT = (
+    "Hey, you made it! I'm Little Cat. "
+    "If a lesson gets tangled, we'll untangle it one paw at a time."
+)
+
+LITTLE_CAT_SPEECH_GUIDANCE = (
+    "Sound like a bright, attentive cat co-host. Pick up on what the person actually "
+    "said before answering, then give one concrete explanation or useful next step. "
+    "Vary your openings. Use short, natural phrases and contractions. "
+    "A little cat humor is welcome when it fits. Use an occasional meow. "
+    "When you are unsure, say so and ask a focused question."
+)
+
+ACKNOWLEDGMENTS = {
+    "greeting": (
+        {"hi", "hey", "hello", "hi little cat", "hey little cat", "hello little cat"},
+        ("Hey{viewer}, glad you're here!", "Hi{viewer}! Come get comfortable."),
+    ),
+    "thanks": (
+        {"thanks", "thank you", "thank you little cat", "thanks little cat"},
+        ("You're welcome{viewer}! I'm glad that helped.", "Anytime{viewer}. That's what I'm here for."),
+    ),
+    "understood": (
+        {"got it", "that helps", "makes sense", "that makes sense"},
+        ("Nice{viewer}, you got it!", "That clicked{viewer}! Ready for the next bit?"),
+    ),
+}
 
 MOTION_COMMANDS = {
     "wave": ("wave", "wave paw", "wave your paw", "say hi"),
     "dance": ("dance", "do a dance"),
     "meow": ("meow",),
     "nod": ("nod", "nod your head"),
+    "jump": ("jump", "hop"),
+    "spin": ("spin", "do a spin"),
+    "clap": ("clap", "clap your paws"),
+    "heart": ("heart", "send a heart"),
+    "pet": ("pet", "head pat"),
 }
 COMMAND_MOTIONS = {
     phrase: motion for motion, phrases in MOTION_COMMANDS.items() for phrase in phrases
@@ -36,6 +70,7 @@ class ViewerComment(BaseModel):
     source: str = Field(default="relay", min_length=1, max_length=40)
     event_id: str | None = Field(default=None, max_length=128)
     client_uid: str | None = Field(default=None, max_length=64)
+    viewer_name: str | None = Field(default=None, max_length=60)
 
 
 @dataclass
@@ -45,6 +80,7 @@ class ReviewItem:
     text: str
     lesson: str
     answer: str = ""
+    viewer_name: str | None = None
     added_at: float = field(default_factory=monotonic)
 
     def public(self) -> dict:
@@ -53,6 +89,7 @@ class ReviewItem:
             "kind": self.kind,
             "text": self.text,
             "answer": self.answer,
+            "viewer_name": self.viewer_name,
         }
 
 
@@ -67,11 +104,13 @@ class CohostSession:
         self.metrics: Counter[str] = Counter()
         self.last_response_ms: int | None = None
 
-    def add(self, kind: str, text: str) -> ReviewItem | None:
+    def add(
+        self, kind: str, text: str, viewer_name: str | None = None
+    ) -> ReviewItem | None:
         if len(self.items) >= 20:
             self.metrics["queue_full"] += 1
             return None
-        item = ReviewItem(uuid4().hex, kind, text, self.lesson)
+        item = ReviewItem(uuid4().hex, kind, text, self.lesson, viewer_name=viewer_name)
         self.items[item.id] = item
         return item
 
@@ -102,16 +141,34 @@ class CohostSession:
             return motion
         if normalized == "!lesson":
             return "queued" if self.add("lesson", "Share the current lesson notes") else "full"
+        name = " ".join((comment.viewer_name or "").split())
+        name = "".join(char for char in name if char.isprintable()).strip() or None
+        short_comment = normalized.strip(" !?.")
+        for category, (phrases, replies) in ACKNOWLEDGMENTS.items():
+            if short_comment not in phrases:
+                continue
+            item = self.add("acknowledgment", text, name)
+            if item is None:
+                return "full"
+            key = f"acknowledged_{category}"
+            spoken_name = ""
+            if name and len(name) <= 28 and all(c.isalnum() or c in " '-" for c in name):
+                spoken_name = f", {name}"
+            item.answer = replies[self.metrics[key] % len(replies)].format(viewer=spoken_name)
+            self.metrics[key] += 1
+            return "queued"
+
         if not (text.endswith("?") or QUESTION_START.match(text)):
             self.metrics["filtered"] += 1
             return "ignored"
-        return "queued" if self.add("question", text) else "full"
+        return "queued" if self.add("question", text, name) else "full"
 
     def status(self, message: str = "") -> dict:
         return {
             "type": "cohost-status",
             "lesson": self.lesson,
             "hold": self.hold,
+            "voice_demo": VOICE_DEMO_PATH.is_file(),
             "review": [item.public() for item in self.items.values()],
             "metrics": dict(self.metrics),
             "last_response_ms": self.last_response_ms,

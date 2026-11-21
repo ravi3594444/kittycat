@@ -6,6 +6,7 @@ from fastapi import WebSocket
 
 from prompts import prompt_loader
 from .live2d_model import Live2dModel
+from .cohost import LITTLE_CAT_SPEECH_GUIDANCE
 from .asr.asr_interface import ASRInterface
 from .tts.tts_interface import TTSInterface
 from .vad.vad_interface import VADInterface
@@ -429,6 +430,11 @@ class ServiceContext:
         - str: The system prompt with all tool prompts appended.
         """
         logger.debug(f"constructing persona_prompt: '''{persona_prompt}'''")
+        if self.live2d_model and self.live2d_model.model_info.get("name") in {
+            "little_cat",
+            "pawsrig",
+        }:
+            persona_prompt += "\n\n" + LITTLE_CAT_SPEECH_GUIDANCE
 
         for prompt_name, prompt_file in self.system_config.tool_prompts.items():
             if (
