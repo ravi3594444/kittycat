@@ -312,7 +312,7 @@ class FishAPITTSConfig(I18nMixin):
     """Configuration for Fish API TTS."""
 
     api_key: str = ""
-    reference_id: str = "7f92f8afb8ec43bf81429cc1c9199cb1"
+    reference_id: str = "933563129e564b19a115bedd57b7406a"
     latency: Literal["normal", "balanced"] = "balanced"
     base_url: str = "https://api.fish.audio"
     model: str = "s2.1-pro-free"

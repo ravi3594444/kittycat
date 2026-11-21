@@ -10,13 +10,17 @@ import httpx
 from .tts_interface import TTSInterface
 
 
+SARAH_VOICE_ID = "933563129e564b19a115bedd57b7406a"
+LEGACY_LITTLE_CAT_VOICE_ID = "7f92f8afb8ec43bf81429cc1c9199cb1"
+
+
 class TTSEngine(TTSInterface):
     """Synthesize a WAV file through the Fish Audio HTTP API."""
 
     def __init__(
         self,
         api_key: str = "",
-        reference_id: str = "7f92f8afb8ec43bf81429cc1c9199cb1",
+        reference_id: str = SARAH_VOICE_ID,
         latency: Literal["normal", "balanced"] = "balanced",
         base_url: str = "https://api.fish.audio",
         model: str = "s2.1-pro-free",
@@ -24,12 +28,18 @@ class TTSEngine(TTSInterface):
         http_client: httpx.AsyncClient | None = None,
     ):
         self.api_key = os.getenv("FISH_AUDIO_API_KEY") or api_key
+        if style == "little_cat" and reference_id == LEGACY_LITTLE_CAT_VOICE_ID:
+            reference_id = SARAH_VOICE_ID
         self.reference_id = os.getenv("FISH_AUDIO_VOICE_ID") or reference_id
         self.latency = latency
         self.url = f"{base_url.rstrip('/')}/v1/tts"
         self.model = os.getenv("FISH_AUDIO_TTS_MODEL") or model
         self.style = style
         self.http_client = http_client
+
+    @property
+    def supports_emotion_cues(self) -> bool:
+        return self.model in {"s2-pro", "s2.1-pro", "s2.1-pro-free"}
 
     def _request_options(self, text: str) -> dict:
         if not self.api_key:
@@ -42,11 +52,14 @@ class TTSEngine(TTSInterface):
         }
         if self.style == "little_cat":
             body["prosody"] = {"volume": -4, "normalize_loudness": True}
-            if self.model in {"s2-pro", "s2.1-pro", "s2.1-pro-free"}:
-                body["text"] = (
-                    "[warm, softly expressive, relaxed pitch, with natural pauses] "
-                    + text
-                )
+            if self.supports_emotion_cues and not text.lstrip().startswith("["):
+                ending = text.rstrip()
+                cue = "warm and conversational"
+                if ending.endswith(("?", "？")):
+                    cue = "gently curious"
+                elif ending.endswith(("!", "！")):
+                    cue = "soft emphasis"
+                body["text"] = f"[{cue}, relaxed mid-range pitch and natural pauses] {text}"
         return {
             "headers": {
                 "Authorization": f"Bearer {self.api_key}",

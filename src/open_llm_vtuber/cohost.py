@@ -11,10 +11,11 @@ from pydantic import BaseModel, Field
 
 KITTY_AVATARS = frozenset({"little_cat", "pawsrig"})
 VOICE_DEMO_PATH = Path("voice-demo.wav")
-VOICE_DEMO_TEXT = (
-    "Hey, you made it! I'm Little Cat. "
-    "If a lesson gets tangled, we'll untangle it one paw at a time."
+VOICE_DEMO_LINES = (
+    "Hey, you made it! I'm Little Cat.",
+    "If a lesson gets tangled, we'll untangle it one paw at a time.",
 )
+VOICE_DEMO_TEXT = " ".join(VOICE_DEMO_LINES)
 
 LITTLE_CAT_SPEECH_GUIDANCE = (
     "Sound like a bright, attentive cat co-host. Start with the useful answer in a "
