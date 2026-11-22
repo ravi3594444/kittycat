@@ -275,6 +275,7 @@ function createNeutralPose(rootX = 0, facingDir = 1) {
     eyeStyle: "normal",
     mouthStyle: "smile",
     mouthOpen: 0,
+    mouthRoundness: 0.5,
     talkPhoneme: "closed",
     isSpeaking: false,
     blink: 0,
@@ -1014,6 +1015,7 @@ function lerp(a, b, alpha) {
 }
 var WALK_BOUNDS = 0.58;
 var WALK_SPEED_PER_SEC = 0.38;
+var POSED_ROUNDNESS = { closed: 0.5, small: 0.55, open_a: 0.45, wide_e: 0.12, round_o: 0.9 };
 var CatAnimationEngine = class {
   currentAction = "idle";
   queue = [];
@@ -1030,8 +1032,7 @@ var CatAnimationEngine = class {
   /** Layered continuous talking toggle (e.g. while user's TTS script speaks) */
   talkingOverlay = false;
   talkingTimeRemaining = null;
-  /** Optional external audio amplitude (0..1) */
-  externalAudioLevel = null;
+  speech = null;
   constructor(config) {
     this.config = {
       queueMode: config?.queueMode ?? "interrupt",
@@ -1058,8 +1059,8 @@ var CatAnimationEngine = class {
       this.talkingTimeRemaining = null;
     }
   }
-  setExternalAudioLevel(level) {
-    this.externalAudioLevel = level === null ? null : Math.max(0, Math.min(1, level));
+  setExternalSpeech(speech) {
+    this.speech = speech;
   }
   getPose() {
     return this.pose;
@@ -1187,15 +1188,12 @@ var CatAnimationEngine = class {
       blink: blinkAmount,
       earTwitch
     });
-    const audioLevel = this.externalAudioLevel;
-    const hasAudibleSpeech = audioLevel !== null && audioLevel > 0.07;
-    if ((this.talkingOverlay || hasAudibleSpeech) && this.currentAction !== "sleep" && this.currentAction !== "eat") {
+    if ((this.talkingOverlay || this.speech) && this.currentAction !== "sleep" && this.currentAction !== "eat") {
       let openness = 0;
       let phoneme = "closed";
-      if (audioLevel !== null) {
-        openness = hasAudibleSpeech ? Math.min(1, audioLevel * 1.35) : 0;
-        const mod = Math.sin(this.globalTime * 11);
-        phoneme = openness < 0.14 ? "closed" : openness < 0.22 ? "small" : mod > 0.45 ? "round_o" : openness > 0.65 ? "open_a" : "wide_e";
+      if (this.speech) {
+        const volume = Math.max(0, Math.min(1, (this.speech.volume - 0.055) / 0.945));
+        openness = 0.86 * Math.pow(volume, 0.78);
       } else {
         const s1 = Math.sin(this.globalTime * 13.5);
         const s2 = Math.sin(this.globalTime * 21.3 + 0.9);
@@ -1248,10 +1246,16 @@ var CatAnimationEngine = class {
     p.pupilY = lerp(p.pupilY, target.pupilY, blend);
     p.blush = lerp(p.blush, target.blush, blend);
     p.eyeStyle = target.eyeStyle;
-    p.mouthStyle = target.mouthStyle;
-    p.mouthOpen = lerp(p.mouthOpen, target.mouthOpen, fastBlend);
+    const mouthRate = target.mouthOpen > p.mouthOpen ? 40 : 29;
+    p.mouthOpen = lerp(p.mouthOpen, target.mouthOpen, 1 - Math.exp(-mouthRate * clampedDt));
+    if (p.mouthOpen < 0.012) p.mouthOpen = 0;
+    if (p.mouthStyle !== "talk" || target.mouthStyle !== "smile" || p.mouthOpen === 0) {
+      p.mouthStyle = target.mouthStyle;
+    }
+    const roundness = this.speech?.roundness ?? POSED_ROUNDNESS[target.talkPhoneme];
+    p.mouthRoundness = lerp(p.mouthRoundness, roundness, fastBlend);
     p.talkPhoneme = target.talkPhoneme;
-    p.isSpeaking = target.isSpeaking;
+    p.isSpeaking = p.mouthStyle === "talk" ? p.mouthOpen > 0.09 : target.isSpeaking;
     p.blink = target.blink;
     p.prop = target.prop;
     p.fx = target.fx;
@@ -2174,20 +2178,22 @@ function drawPhotoMatchedEyes(ctx, pose, assets) {
   }
 }
 function drawPhotoMatchedMouth(ctx, pose) {
-  if (pose.mouthStyle === "smile") return;
   const mx = 301;
   const my = 507;
   const ink = "#3A2334";
   ctx.save();
   ctx.translate(mx, my);
-  const patchGrad = ctx.createRadialGradient(0, 10, 32, 0, 10, 50);
-  patchGrad.addColorStop(0, "#FCF2E9");
-  patchGrad.addColorStop(0.76, "#FCF1E8");
-  patchGrad.addColorStop(1, "rgba(252, 241, 232, 0)");
-  ctx.fillStyle = patchGrad;
+  ctx.save();
+  ctx.translate(0, 11);
+  ctx.scale(1, 0.69);
+  const patch = ctx.createRadialGradient(0, 0, 30, 0, 0, 49);
+  patch.addColorStop(0, "#FCF2E9");
+  patch.addColorStop(1, "rgba(252, 242, 233, 0)");
+  ctx.fillStyle = patch;
   ctx.beginPath();
-  ctx.ellipse(0, 10, 50, 31, 0, 0, Math.PI * 2);
+  ctx.arc(0, 0, 49, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
   ctx.strokeStyle = ink;
   ctx.lineWidth = 3.2;
   ctx.lineCap = "round";
@@ -2249,75 +2255,36 @@ function drawPhotoMatchedMouth(ctx, pose) {
       drawFangedMouth(38, 25);
       break;
     }
+    case "smile":
     case "talk": {
-      const open = pose.mouthOpen;
-      if (pose.talkPhoneme === "closed" || open < 0.14) {
-        ctx.beginPath();
-        ctx.moveTo(0, -11);
-        ctx.lineTo(0, 1);
-        ctx.moveTo(-26, 2);
-        ctx.quadraticCurveTo(-11, 13, 0, 1);
-        ctx.quadraticCurveTo(11, 13, 26, 2);
-        ctx.stroke();
-      } else if (pose.talkPhoneme === "round_o") {
-        const rx = 11 + open * 7;
-        const ry = 13 + open * 13;
-        ctx.beginPath();
-        ctx.moveTo(0, -11);
-        ctx.lineTo(0, -1);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.ellipse(0, 13 + open * 3, rx, ry, 0, 0, Math.PI * 2);
-        const oGrad = ctx.createLinearGradient(0, 2, 0, 28 + open * 8);
-        oGrad.addColorStop(0, "#6E263D");
-        oGrad.addColorStop(1, "#A43B57");
-        ctx.fillStyle = oGrad;
-        ctx.fill();
+      const open = pose.mouthStyle === "talk" ? pose.mouthOpen : 0;
+      const roundness = pose.mouthRoundness;
+      const width = 26 + open * (5 - roundness * 19);
+      const depth = open * (27 + roundness * 11);
+      ctx.beginPath();
+      ctx.moveTo(0, -11);
+      ctx.lineTo(0, 1);
+      ctx.stroke();
+      const lips = new Path2D();
+      lips.moveTo(-width, 2);
+      lips.quadraticCurveTo(-width * 0.46, 13, 0, 1);
+      lips.quadraticCurveTo(width * 0.46, 13, width, 2);
+      if (open > 0) {
+        lips.quadraticCurveTo(width * 0.5, 13 + depth, 0, 1 + depth);
+        lips.quadraticCurveTo(-width * 0.5, 13 + depth, -width, 2);
+        lips.closePath();
+        ctx.fillStyle = "#80324A";
+        ctx.fill(lips);
         ctx.save();
-        ctx.clip();
+        ctx.clip(lips);
+        ctx.globalAlpha *= open;
         ctx.fillStyle = "#F68AA6";
         ctx.beginPath();
-        ctx.ellipse(0, 21 + open * 5, rx * 0.74, ry * 0.46, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 5 + depth, width * 0.62, 4 + depth * 0.34, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-        ctx.stroke();
-      } else if (pose.talkPhoneme === "wide_e") {
-        const h = 15 + open * 16;
-        ctx.beginPath();
-        ctx.moveTo(-28, 3);
-        ctx.quadraticCurveTo(0, 8, 28, 3);
-        ctx.bezierCurveTo(26, h, -26, h, -28, 3);
-        ctx.closePath();
-        ctx.fillStyle = "#8F324D";
-        ctx.fill();
-        ctx.save();
-        ctx.clip();
-        ctx.fillStyle = "#F68AA6";
-        ctx.beginPath();
-        ctx.ellipse(0, h * 0.85, 19, h * 0.42, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#FFFFFF";
-        ctx.beginPath();
-        ctx.moveTo(-20, 4);
-        ctx.lineTo(-14, 13);
-        ctx.lineTo(-9, 5);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(20, 4);
-        ctx.lineTo(14, 13);
-        ctx.lineTo(9, 5);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, -11);
-        ctx.lineTo(0, 4);
-        ctx.stroke();
-      } else {
-        drawFangedMouth(14 + open * 28, 22 + open * 4);
       }
+      ctx.stroke(lips);
       break;
     }
     case "meow": {
@@ -2905,6 +2872,12 @@ function renderPhotoRigScene(ctx, pose, appearance2, opts) {
 }
 
 // frontend/pawsrig/stage.ts
+function sample(values, position, fallback) {
+  const frame = Math.floor(position);
+  const start = values?.[frame] ?? fallback;
+  const end = values?.[frame + 1] ?? fallback;
+  return start + (end - start) * (position - frame);
+}
 var appearance = {
   coat: "ginger",
   eyeColor: "anime",
@@ -2965,9 +2938,11 @@ function mountPawsRig() {
     }
     if (!width || !height) return;
     if (speech?.audio.paused || speech?.audio.ended || speech?.audio.error) speech = null;
-    const volume = speech?.sliceLength ? speech.volumes[Math.floor(speech.audio.currentTime * 1e3 / speech.sliceLength)] ?? 0 : 0;
-    engine.setTalking(Boolean(speech));
-    engine.setExternalAudioLevel(speech ? volume : null);
+    const position = speech?.sliceLength ? Math.max(0, speech.audio.currentTime * 1e3 / speech.sliceLength - 0.5) : 0;
+    engine.setExternalSpeech(speech ? {
+      volume: sample(speech.volumes, position, 0),
+      roundness: sample(speech.mouthRoundness, position, 0.5)
+    } : null);
     engine.step(elapsed);
     const action = engine.getSnapshot().currentAction;
     const pose = engine.getPose();

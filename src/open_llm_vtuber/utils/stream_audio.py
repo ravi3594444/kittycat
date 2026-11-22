@@ -1,4 +1,6 @@
 import base64
+
+import numpy as np
 from pydub import AudioSegment
 from pydub.utils import make_chunks
 from ..agent.output_types import Actions
@@ -22,6 +24,22 @@ def _get_volume_by_chunks(audio: AudioSegment, chunk_length_ms: int) -> list:
     if max_volume == 0:
         raise ValueError("Audio is empty or all zero.")
     return [volume / max_volume for volume in volumes]
+
+
+def _get_mouth_roundness(audio: AudioSegment, chunk_ms: int, frame_count: int) -> list[float]:
+    """Estimate rounded versus spread mouth shapes from speech resonance."""
+    mono = np.asarray(audio.get_array_of_samples(), dtype=np.float32)
+    mono = mono.reshape(-1, audio.channels).mean(axis=1)
+    frame_size = max(1, round(audio.frame_rate * chunk_ms / 1000))
+    length = frame_size * frame_count
+    frames = np.pad(mono[:length], (0, max(0, length - len(mono))))
+    frames = frames.reshape(frame_count, frame_size) * np.hanning(frame_size)
+    power = np.abs(np.fft.rfft(frames, axis=1)) ** 2
+    hz = np.fft.rfftfreq(frame_size, 1 / audio.frame_rate)
+    low = power[:, (350 <= hz) & (hz < 1300)].sum(axis=1)
+    high = power[:, (1500 <= hz) & (hz < 3600)].sum(axis=1)
+    ratio = np.divide(low, low + high, out=np.full_like(low, 0.5), where=(low + high) > 0)
+    return np.round(np.clip((ratio - 0.35) * 1.8 + 0.25, 0, 1), 3).tolist()
 
 
 def prepare_audio_payload(
@@ -53,6 +71,7 @@ def prepare_audio_payload(
             "type": "audio",
             "audio": None,
             "volumes": [],
+            "mouth_roundness": [],
             "slice_length": chunk_length_ms,
             "display_text": display_text,
             "actions": actions.to_dict() if actions else None,
@@ -73,6 +92,7 @@ def prepare_audio_payload(
         "type": "audio",
         "audio": audio_base64,
         "volumes": volumes,
+        "mouth_roundness": _get_mouth_roundness(audio, chunk_length_ms, len(volumes)),
         "slice_length": chunk_length_ms,
         "display_text": display_text,
         "actions": actions.to_dict() if actions else None,

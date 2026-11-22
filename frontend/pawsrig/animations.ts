@@ -279,6 +279,7 @@ export function createNeutralPose(rootX = 0, facingDir: 1 | -1 = 1): CatPose {
     eyeStyle: 'normal',
     mouthStyle: 'smile',
     mouthOpen: 0,
+    mouthRoundness: 0.5,
     talkPhoneme: 'closed',
     isSpeaking: false,
     blink: 0,

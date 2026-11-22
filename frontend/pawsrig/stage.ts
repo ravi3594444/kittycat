@@ -7,6 +7,14 @@ interface SpeechPlayback {
   audio: HTMLAudioElement;
   volumes: number[];
   sliceLength: number;
+  mouthRoundness?: number[];
+}
+
+function sample(values: number[] | undefined, position: number, fallback: number): number {
+  const frame = Math.floor(position);
+  const start = values?.[frame] ?? fallback;
+  const end = values?.[frame + 1] ?? fallback;
+  return start + (end - start) * (position - frame);
 }
 
 const appearance: CatAppearance = {
@@ -77,11 +85,13 @@ export function mountPawsRig() {
     if (!width || !height) return;
 
     if (speech?.audio.paused || speech?.audio.ended || speech?.audio.error) speech = null;
-    const volume = speech?.sliceLength
-      ? speech.volumes[Math.floor(speech.audio.currentTime * 1000 / speech.sliceLength)] ?? 0
+    const position = speech?.sliceLength
+      ? Math.max(0, speech.audio.currentTime * 1000 / speech.sliceLength - 0.5)
       : 0;
-    engine.setTalking(Boolean(speech));
-    engine.setExternalAudioLevel(speech ? volume : null);
+    engine.setExternalSpeech(speech ? {
+      volume: sample(speech.volumes, position, 0),
+      roundness: sample(speech.mouthRoundness, position, 0.5),
+    } : null);
     engine.step(elapsed);
 
     const action = engine.getSnapshot().currentAction;

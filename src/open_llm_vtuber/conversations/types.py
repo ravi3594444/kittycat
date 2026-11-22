@@ -15,6 +15,7 @@ class AudioPayload(TypedDict):
     type: str
     audio: Optional[str]
     volumes: Optional[List[float]]
+    mouth_roundness: Optional[List[float]]
     slice_length: Optional[int]
     display_text: Optional[DisplayText]
     actions: Optional[Actions]

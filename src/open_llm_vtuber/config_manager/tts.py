@@ -313,7 +313,7 @@ class FishAPITTSConfig(I18nMixin):
 
     api_key: str = ""
     reference_id: str = "933563129e564b19a115bedd57b7406a"
-    latency: Literal["normal", "balanced"] = "balanced"
+    latency: Literal["normal", "balanced", "low"] = "balanced"
     base_url: str = "https://api.fish.audio"
     model: str = "s2.1-pro-free"
     style: Literal["little_cat", "neutral"] = "little_cat"

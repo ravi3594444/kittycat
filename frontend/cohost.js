@@ -11,6 +11,11 @@
         <button type="button" data-control="suggest">Suggest transition</button>
         <button type="button" data-control="voice-demo" hidden>Play voice demo</button>
       </div>
+      <div class="cohost-voice-samples" hidden>
+        <label for="cohost-voice-sample">Voice emotion</label>
+        <select id="cohost-voice-sample" name="voice_sample"></select>
+        <button type="button" data-control="voice-sample">Play emotion sample</button>
+      </div>
       <label>Lesson notes <textarea name="lesson" rows="3" maxlength="4000"></textarea></label>
       <button type="button" data-control="lesson">Save notes</button>
       <form>
@@ -29,6 +34,9 @@
   const metrics = panel.querySelector(".cohost-metrics");
   const holdButton = panel.querySelector("[data-control=hold]");
   const demoButton = panel.querySelector("[data-control=voice-demo]");
+  const samplePanel = panel.querySelector(".cohost-voice-samples");
+  const sampleSelect = panel.querySelector("[name=voice_sample]");
+  const sampleButton = panel.querySelector("[data-control=voice-sample]");
   const edits = new Map();
   let socket;
   let modelName;
@@ -171,6 +179,13 @@
       hold = message.hold;
       demoButton.hidden = !message.voice_demo;
       demoButton.disabled = hold;
+      if (message.voice_samples && !sampleSelect.options.length) {
+        for (const [id, label] of Object.entries(message.voice_samples)) {
+          sampleSelect.add(new Option(label, id));
+        }
+      }
+      samplePanel.hidden = !message.voice_samples || !sampleSelect.options.length;
+      sampleButton.disabled = hold;
       holdButton.textContent = hold ? "Resume co-host" : "Mute and hold";
       holdButton.setAttribute("aria-pressed", String(hold));
       if (message.message || ["Connecting…", "The co-host is disconnected."].includes(status.textContent)) {
@@ -209,6 +224,8 @@
       control("lesson", { lesson: lesson.value });
     } else if (action === "speak") {
       control("speak", { id, answer: button.closest("article").querySelector("textarea").value });
+    } else if (action === "voice-sample") {
+      control(action, { sample: sampleSelect.value });
     } else {
       if (action === "draft") edits.delete(id);
       control(action, { id });
@@ -255,6 +272,7 @@
       lesson.value = savedLesson = "";
       pendingMotion = null;
       demoButton.hidden = true;
+      samplePanel.hidden = true;
       hold = false;
       holdButton.textContent = "Mute and hold";
     });

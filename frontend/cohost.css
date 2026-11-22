@@ -15,7 +15,7 @@
 .cohost-panel summary { cursor: pointer; padding: 8px 12px; font-weight: 600; }
 .cohost-panel section { width: min(340px, calc(100vw - 48px)); max-height: 74vh; overflow: auto; padding: 0 12px 12px; }
 .cohost-panel label { display: grid; gap: 4px; margin: 10px 0 6px; }
-.cohost-panel input, .cohost-panel textarea {
+.cohost-panel input, .cohost-panel textarea, .cohost-panel select {
   width: 100%; padding: 6px 8px; border: 1px solid #647187; border-radius: 5px;
   background: #111823; color: inherit; font: inherit;
 }
@@ -30,6 +30,7 @@
 .cohost-panel article p { margin: 0 0 4px; overflow-wrap: anywhere; }
 .cohost-panel small { display: block; margin-top: 10px; color: #c1cbda; }
 .cohost-status { margin: 2px 0 8px; }
+.cohost-voice-samples select { margin-bottom: 6px; }
 
 .pawsrig-stage {
   position: absolute;

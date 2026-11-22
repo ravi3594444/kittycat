@@ -16,6 +16,9 @@ from .cohost import (
     ViewerComment,
     VOICE_DEMO_PATH,
     VOICE_DEMO_TEXT,
+    VOICE_SAMPLE_DIRECTORY,
+    VOICE_SAMPLE_TEXT,
+    VOICE_SAMPLES,
     motion_command,
 )
 from .agent.output_types import DisplayText
@@ -645,14 +648,22 @@ class WebSocketHandler:
                 await self._handle_interrupt(websocket, client_uid, {})
                 await websocket.send_json({"type": "interrupt-signal"})
             status = "Co-host paused." if session.hold else "Co-host ready."
-        elif action == "voice-demo":
-            if session.hold or session.instructor_speaking or self._cohost_busy(client_uid):
-                status = "Wait for the floor to be clear before playing the voice demo."
-            elif not VOICE_DEMO_PATH.is_file():
-                status = "The voice demo needs to be generated on the server."
+        elif action in {"voice-demo", "voice-sample"}:
+            is_demo = action == "voice-demo"
+            sample_id = data.get("sample")
+            audio_path = VOICE_DEMO_PATH if is_demo else None
+            if not is_demo and isinstance(sample_id, str) and sample_id in VOICE_SAMPLES:
+                audio_path = VOICE_SAMPLE_DIRECTORY / f"{sample_id}.wav"
+            if audio_path is None or not audio_path.is_file():
+                status = "That voice recording is unavailable."
+            elif session.hold or session.instructor_speaking or self._cohost_busy(client_uid):
+                status = "Wait for the floor to be clear before playing the recording."
             else:
+                text = VOICE_DEMO_TEXT if is_demo else VOICE_SAMPLE_TEXT
+                if not is_demo and sample_id == "laugh":
+                    text = f"Ha ha. {text}"
                 self.current_conversation_tasks[client_uid] = asyncio.create_task(
-                    self._play_voice_demo(websocket, client_uid, session)
+                    self._play_voice_recording(websocket, client_uid, session, audio_path, text)
                 )
         elif action == "suggest":
             session.add("transition", "Suggest the next lesson transition.")
@@ -708,14 +719,14 @@ class WebSocketHandler:
         if client_uid in self.client_connections:
             await websocket.send_json(session.status(status))
 
-    async def _play_voice_demo(self, websocket, client_uid, session):
+    async def _play_voice_recording(self, websocket, client_uid, session, audio_path, text):
         character = self.client_contexts[client_uid].character_config
-        display = DisplayText(VOICE_DEMO_TEXT, character.character_name, character.avatar)
+        display = DisplayText(text, character.character_name, character.avatar)
         tts = TTSTaskManager()
         try:
             payload = await asyncio.to_thread(
                 prepare_audio_payload,
-                audio_path=str(VOICE_DEMO_PATH),
+                audio_path=str(audio_path),
                 display_text=display,
                 forwarded=True,
             )
@@ -723,7 +734,7 @@ class WebSocketHandler:
             await tts.queue_audio_payload(payload, websocket.send_text)
             await finalize_conversation_turn(tts, websocket.send_text, client_uid)
         except (OSError, ValueError):
-            await websocket.send_json(session.status("The voice demo could not play."))
+            await websocket.send_json(session.status("The voice recording could not play."))
         finally:
             tts.clear()
 

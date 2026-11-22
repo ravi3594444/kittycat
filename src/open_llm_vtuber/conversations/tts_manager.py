@@ -143,7 +143,8 @@ class TTSTaskManager:
         audio_file_path = None
         try:
             audio_file_path = await self._generate_audio(tts_engine, tts_text)
-            payload = prepare_audio_payload(
+            payload = await asyncio.to_thread(
+                prepare_audio_payload,
                 audio_path=audio_file_path,
                 display_text=display_text,
                 actions=actions,

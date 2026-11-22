@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import uuid
 import wave
 from pathlib import Path
@@ -12,6 +13,7 @@ from .tts_interface import TTSInterface
 
 SARAH_VOICE_ID = "933563129e564b19a115bedd57b7406a"
 LEGACY_LITTLE_CAT_VOICE_ID = "7f92f8afb8ec43bf81429cc1c9199cb1"
+LAUGH_START = re.compile(r"\s*ha[\s,-]*ha\b", re.IGNORECASE)
 
 
 class TTSEngine(TTSInterface):
@@ -21,7 +23,7 @@ class TTSEngine(TTSInterface):
         self,
         api_key: str = "",
         reference_id: str = SARAH_VOICE_ID,
-        latency: Literal["normal", "balanced"] = "balanced",
+        latency: Literal["normal", "balanced", "low"] = "balanced",
         base_url: str = "https://api.fish.audio",
         model: str = "s2.1-pro-free",
         style: Literal["little_cat", "neutral"] = "little_cat",
@@ -52,14 +54,8 @@ class TTSEngine(TTSInterface):
         }
         if self.style == "little_cat":
             body["prosody"] = {"volume": -4, "normalize_loudness": True}
-            if self.supports_emotion_cues and not text.lstrip().startswith("["):
-                ending = text.rstrip()
-                cue = "warm and conversational"
-                if ending.endswith(("?", "？")):
-                    cue = "gently curious"
-                elif ending.endswith(("!", "！")):
-                    cue = "soft emphasis"
-                body["text"] = f"[{cue}, relaxed mid-range pitch and natural pauses] {text}"
+            if self.supports_emotion_cues and LAUGH_START.match(text):
+                body["text"] = f"[laughing softly] {text}"
         return {
             "headers": {
                 "Authorization": f"Bearer {self.api_key}",

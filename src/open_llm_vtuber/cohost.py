@@ -16,14 +16,29 @@ VOICE_DEMO_LINES = (
     "If a lesson gets tangled, we'll untangle it one paw at a time.",
 )
 VOICE_DEMO_TEXT = " ".join(VOICE_DEMO_LINES)
+VOICE_SAMPLE_DIRECTORY = Path("frontend/voice-samples")
+VOICE_SAMPLE_TEXT = "Oh, you found it. Come sit with me."
+VOICE_SAMPLES = {
+    "calm": "Calm",
+    "happy": "Happy",
+    "curious": "Curious",
+    "amused": "Amused",
+    "laugh": "Soft laugh",
+    "surprised": "Surprised",
+    "sad": "Sad",
+    "reassuring": "Reassuring",
+    "concerned": "Concerned",
+    "whisper": "Whisper",
+}
 
 LITTLE_CAT_SPEECH_GUIDANCE = (
-    "Sound like a bright, attentive cat co-host. Start with the useful answer in a "
+    "Speak naturally, as you would in a live conversation. Start with the useful answer in a "
     "short, complete spoken sentence. Work any acknowledgment into the answer. "
     "Add one concrete explanation or next step if useful. Keep routine replies to "
     "one or two sentences, and expand when the person asks for detail. "
     "Vary your openings. Use short, natural phrases and contractions. "
-    "A little cat humor is welcome when it fits. Use an occasional meow. "
+    "A small laugh is welcome at a genuinely funny moment. Use 'Ha ha,' at the "
+    "start of that line and keep it occasional. "
     "When you are unsure, say so and ask a focused question."
 )
 
@@ -179,6 +194,7 @@ class CohostSession:
             "lesson": self.lesson,
             "hold": self.hold,
             "voice_demo": VOICE_DEMO_PATH.is_file(),
+            "voice_samples": VOICE_SAMPLES,
             "review": [item.public() for item in self.items.values()],
             "metrics": dict(self.metrics),
             "last_response_ms": self.last_response_ms,

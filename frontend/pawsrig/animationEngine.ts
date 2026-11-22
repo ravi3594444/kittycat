@@ -18,6 +18,7 @@ function lerp(a: number, b: number, alpha: number): number {
 
 const WALK_BOUNDS = 0.58;
 const WALK_SPEED_PER_SEC = 0.38;
+const POSED_ROUNDNESS = { closed: 0.5, small: 0.55, open_a: 0.45, wide_e: 0.12, round_o: 0.9 };
 
 /**
  * Pure, framework-agnostic 2D Cat animation state machine and pose interpolator.
@@ -41,8 +42,7 @@ export class CatAnimationEngine {
   /** Layered continuous talking toggle (e.g. while user's TTS script speaks) */
   private talkingOverlay = false;
   private talkingTimeRemaining: number | null = null;
-  /** Optional external audio amplitude (0..1) */
-  private externalAudioLevel: number | null = null;
+  private speech: { volume: number; roundness: number } | null = null;
 
   constructor(config?: Partial<EngineConfig>) {
     this.config = {
@@ -79,9 +79,8 @@ export class CatAnimationEngine {
     }
   }
 
-  public setExternalAudioLevel(level: number | null): void {
-    this.externalAudioLevel =
-      level === null ? null : Math.max(0, Math.min(1, level));
+  public setExternalSpeech(speech: { volume: number; roundness: number } | null): void {
+    this.speech = speech;
   }
 
   public getPose(): CatPose {
@@ -247,28 +246,16 @@ export class CatAnimationEngine {
     });
 
     // Layer actual speech over compatible movements, including quiet pauses.
-    const audioLevel = this.externalAudioLevel;
-    const hasAudibleSpeech = audioLevel !== null && audioLevel > 0.07;
     if (
-      (this.talkingOverlay || hasAudibleSpeech) &&
+      (this.talkingOverlay || this.speech) &&
       this.currentAction !== 'sleep' &&
       this.currentAction !== 'eat'
     ) {
       let openness = 0;
       let phoneme: CatPose['talkPhoneme'] = 'closed';
-      if (audioLevel !== null) {
-        openness = hasAudibleSpeech ? Math.min(1, audioLevel * 1.35) : 0;
-        const mod = Math.sin(this.globalTime * 11);
-        phoneme =
-          openness < 0.14
-            ? 'closed'
-            : openness < 0.22
-            ? 'small'
-            : mod > 0.45
-            ? 'round_o'
-            : openness > 0.65
-            ? 'open_a'
-            : 'wide_e';
+      if (this.speech) {
+        const volume = Math.max(0, Math.min(1, (this.speech.volume - 0.055) / 0.945));
+        openness = 0.86 * Math.pow(volume, 0.78);
       } else {
         const s1 = Math.sin(this.globalTime * 13.5);
         const s2 = Math.sin(this.globalTime * 21.3 + 0.9);
@@ -342,10 +329,16 @@ export class CatAnimationEngine {
 
     // Discrete expression & prop channels follow active target immediately
     p.eyeStyle = target.eyeStyle;
-    p.mouthStyle = target.mouthStyle;
-    p.mouthOpen = lerp(p.mouthOpen, target.mouthOpen, fastBlend);
+    const mouthRate = target.mouthOpen > p.mouthOpen ? 40 : 29;
+    p.mouthOpen = lerp(p.mouthOpen, target.mouthOpen, 1 - Math.exp(-mouthRate * clampedDt));
+    if (p.mouthOpen < 0.012) p.mouthOpen = 0;
+    if (p.mouthStyle !== 'talk' || target.mouthStyle !== 'smile' || p.mouthOpen === 0) {
+      p.mouthStyle = target.mouthStyle;
+    }
+    const roundness = this.speech?.roundness ?? POSED_ROUNDNESS[target.talkPhoneme];
+    p.mouthRoundness = lerp(p.mouthRoundness, roundness, fastBlend);
     p.talkPhoneme = target.talkPhoneme;
-    p.isSpeaking = target.isSpeaking;
+    p.isSpeaking = p.mouthStyle === 'talk' ? p.mouthOpen > 0.09 : target.isSpeaking;
     p.blink = target.blink;
     p.prop = target.prop;
     p.fx = target.fx;

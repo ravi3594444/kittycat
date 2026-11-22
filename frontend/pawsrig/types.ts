@@ -122,6 +122,7 @@ export interface CatPose {
   mouthStyle: MouthStyle;
   /** Lip-sync jaw openness (0..1) and active anime speech phoneme. */
   mouthOpen: number;
+  mouthRoundness: number;
   talkPhoneme: TalkPhoneme;
   isSpeaking: boolean;
   blink: number;

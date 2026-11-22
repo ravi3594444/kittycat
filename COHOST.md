@@ -27,7 +27,9 @@ uv run --no-project --python 3.12 --with-requirements requirements-cohost.txt py
 
 Refresh the site and choose **Play voice demo** under **Co-host controls**. The sample plays through the avatar's speech animation and lip sync. The browser replays the generated recording, and each click uses that recording.
 
-Little Cat uses [Sarah](https://fish.audio/m/933563129e564b19a115bedd57b7406a/) by default. Existing Little Cat configs that use the former default get Sarah when the server restarts. The delivery requests 4 dB of volume reduction and uses gentle curiosity for questions, soft emphasis for exclamations, and a warm conversational tone for other lines. Fish S2 accepts [inline emotion cues](https://docs.fish.audio/developer-guide/core-features/emotions) at the start of a line to direct it explicitly. Set `style: neutral` in `fish_api_tts` for the voice preset's own delivery. To audition another voice such as [Calm Young Female](https://fish.audio/m/6a76d481ddb54aa5ab587fb35adfd49b/), set `FISH_AUDIO_VOICE_ID` in the shell and run the sample command again. Regenerate the recording to hear changes in **Play voice demo**.
+Little Cat uses [Sarah](https://fish.audio/m/933563129e564b19a115bedd57b7406a/) by default. The server requests 4 dB of volume reduction and sends everyday speech in the voice's natural delivery. The agent can start a genuinely funny line with `Ha ha,` to cue a soft laugh. Fish S2 accepts [inline emotion cues](https://docs.fish.audio/developer-guide/core-features/emotions) when directing an approved reply or demo. To try Fish's faster synthesis mode, set `latency: low` under `fish_api_tts` in `conf.yaml` and restart the service. To audition another voice, set `FISH_AUDIO_VOICE_ID` in the shell and run the demo command again.
+
+In **Co-host controls**, choose a **Voice emotion** and select **Play emotion sample**. The samples use the same line in ten deliveries, including a soft laugh. Kittycat replays the recordings with lip sync without a synthesis request. The recordings are in the [voice samples folder](frontend/voice-samples).
 
 ## Use the co-host
 
@@ -62,7 +64,7 @@ Keep the operator page on localhost or behind your private access layer. The rel
 
 ## Update PawsRig
 
-The uploaded PawsRig canvas rig lives in `frontend/pawsrig/`. The built viewer still loads the classic Live2D model for its existing audio playback path. PawsRig renders in the same viewport and reads the `cohost:voice` event from the bundled viewer to sync its mouth using the current audio time and volume.
+The uploaded PawsRig canvas rig lives in `frontend/pawsrig/`. PawsRig uses the bundled viewer's `cohost:voice` event to follow the playback clock. The server provides volume and an estimate of mouth roundness from the audio. PawsRig blends these signals into the mouth pose and closes it on pauses.
 
 After editing the TypeScript rig, rebuild its browser module from the repository root with `npx --yes esbuild@0.25.12 frontend/pawsrig/stage.ts --bundle --format=esm --target=es2022 --outfile=frontend/pawsrig/stage.js`. The Python server serves this bundle directly.
 

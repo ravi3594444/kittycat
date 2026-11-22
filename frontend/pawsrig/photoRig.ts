@@ -1125,17 +1125,11 @@ function drawPhotoMatchedEyes(
   }
 }
 
-/**
- * Draws photo-matched 5-phoneme anime talking lip-sync & mouth expressions directly
- * at the exact mouth coordinates (301, 514) on the 536x960 head layer!
- */
+/** Draw the speech mouth and expressions in the photo's head coordinates. */
 function drawPhotoMatchedMouth(
   ctx: CanvasRenderingContext2D,
   pose: CatPose
 ): void {
-  // When idle ('smile'), keep the 100% original adorable fang-smile from the photo!
-  if (pose.mouthStyle === 'smile') return;
-
   const mx = 301;
   const my = 507;
   const ink = '#3A2334';
@@ -1143,15 +1137,18 @@ function drawPhotoMatchedMouth(
   ctx.save();
   ctx.translate(mx, my);
 
-  // Seamless cream muzzle fur cover (opaque core hides both original smile corners 100%, soft outer feather)
-  const patchGrad = ctx.createRadialGradient(0, 10, 32, 0, 10, 50);
-  patchGrad.addColorStop(0, '#FCF2E9');
-  patchGrad.addColorStop(0.76, '#FCF1E8');
-  patchGrad.addColorStop(1, 'rgba(252, 241, 232, 0)');
-  ctx.fillStyle = patchGrad;
+  // Feather the replacement muzzle in both directions around the original mouth.
+  ctx.save();
+  ctx.translate(0, 11);
+  ctx.scale(1, 0.69);
+  const patch = ctx.createRadialGradient(0, 0, 30, 0, 0, 49);
+  patch.addColorStop(0, '#FCF2E9');
+  patch.addColorStop(1, 'rgba(252, 242, 233, 0)');
+  ctx.fillStyle = patch;
   ctx.beginPath();
-  ctx.ellipse(0, 10, 50, 31, 0, 0, Math.PI * 2);
+  ctx.arc(0, 0, 49, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 
   ctx.strokeStyle = ink;
   ctx.lineWidth = 3.2;
@@ -1224,76 +1221,36 @@ function drawPhotoMatchedMouth(
       break;
     }
 
+    case 'smile':
     case 'talk': {
-      const open = pose.mouthOpen;
-      if (pose.talkPhoneme === 'closed' || open < 0.14) {
-        // Neat closed anime :3 smile between syllables
-        ctx.beginPath();
-        ctx.moveTo(0, -11);
-        ctx.lineTo(0, 1);
-        ctx.moveTo(-26, 2);
-        ctx.quadraticCurveTo(-11, 13, 0, 1);
-        ctx.quadraticCurveTo(11, 13, 26, 2);
-        ctx.stroke();
-      } else if (pose.talkPhoneme === 'round_o') {
-        const rx = 11 + open * 7;
-        const ry = 13 + open * 13;
-        ctx.beginPath();
-        ctx.moveTo(0, -11);
-        ctx.lineTo(0, -1);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.ellipse(0, 13 + open * 3, rx, ry, 0, 0, Math.PI * 2);
-        const oGrad = ctx.createLinearGradient(0, 2, 0, 28 + open * 8);
-        oGrad.addColorStop(0, '#6E263D');
-        oGrad.addColorStop(1, '#A43B57');
-        ctx.fillStyle = oGrad;
-        ctx.fill();
+      const open = pose.mouthStyle === 'talk' ? pose.mouthOpen : 0;
+      const roundness = pose.mouthRoundness;
+      const width = 26 + open * (5 - roundness * 19);
+      const depth = open * (27 + roundness * 11);
+      ctx.beginPath();
+      ctx.moveTo(0, -11);
+      ctx.lineTo(0, 1);
+      ctx.stroke();
+      const lips = new Path2D();
+      lips.moveTo(-width, 2);
+      lips.quadraticCurveTo(-width * 0.46, 13, 0, 1);
+      lips.quadraticCurveTo(width * 0.46, 13, width, 2);
+      if (open > 0) {
+        lips.quadraticCurveTo(width * 0.5, 13 + depth, 0, 1 + depth);
+        lips.quadraticCurveTo(-width * 0.5, 13 + depth, -width, 2);
+        lips.closePath();
+        ctx.fillStyle = '#80324A';
+        ctx.fill(lips);
         ctx.save();
-        ctx.clip();
+        ctx.clip(lips);
+        ctx.globalAlpha *= open;
         ctx.fillStyle = '#F68AA6';
         ctx.beginPath();
-        ctx.ellipse(0, 21 + open * 5, rx * 0.74, ry * 0.46, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 5 + depth, width * 0.62, 4 + depth * 0.34, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-        ctx.stroke();
-      } else if (pose.talkPhoneme === 'wide_e') {
-        const h = 15 + open * 16;
-        ctx.beginPath();
-        ctx.moveTo(-28, 3);
-        ctx.quadraticCurveTo(0, 8, 28, 3);
-        ctx.bezierCurveTo(26, h, -26, h, -28, 3);
-        ctx.closePath();
-        ctx.fillStyle = '#8F324D';
-        ctx.fill();
-        ctx.save();
-        ctx.clip();
-        ctx.fillStyle = '#F68AA6';
-        ctx.beginPath();
-        ctx.ellipse(0, h * 0.85, 19, h * 0.42, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        ctx.moveTo(-20, 4);
-        ctx.lineTo(-14, 13);
-        ctx.lineTo(-9, 5);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(20, 4);
-        ctx.lineTo(14, 13);
-        ctx.lineTo(9, 5);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, -11);
-        ctx.lineTo(0, 4);
-        ctx.stroke();
-      } else {
-        drawFangedMouth(14 + open * 28, 22 + open * 4);
       }
+      ctx.stroke(lips);
       break;
     }
 
@@ -1707,7 +1664,7 @@ export interface PhotoRigRenderOptions {
 /**
  * Renders the 100% photo-faithful Live2D rigged anime gamer cat directly from
  * kitty.png with articulated tail, breathing hoodie torso,
- * tilting/bobbing head, eye blinking/expressions, 5-phoneme talking lip-sync,
+ * tilting/bobbing head, eye blinking/expressions, speech-driven mouth shapes,
  * raised waving/heart arms, and live glowing keyboard/mic/hearts foreground.
  */
 export function renderPhotoRigScene(
@@ -1869,7 +1826,7 @@ export function renderPhotoRigScene(
   // Live2D Eye Blinking & Expressions right on the photo's eyes (zero-lag cached fur patches!)
   drawPhotoMatchedEyes(ctx, pose, assets);
 
-  // Live2D 5-Phoneme Talking Lip-Sync & Mouth Expressions right on the photo's mouth!
+  // Draw the lips with the same transform as the head.
   drawPhotoMatchedMouth(ctx, pose);
 
   // Optional Crown accessory

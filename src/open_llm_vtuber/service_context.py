@@ -452,6 +452,8 @@ class ServiceContext:
             prompt_content = prompt_loader.load_util(prompt_file)
 
             if prompt_name == "live2d_expression_prompt":
+                if not self.live2d_model or not self.live2d_model.emo_str:
+                    continue
                 prompt_content = prompt_content.replace(
                     "[<insert_emomap_keys>]", self.live2d_model.emo_str
                 )
