@@ -114,7 +114,7 @@ Keep the operator page on localhost or behind your private access layer. The rel
 
 ## Update PawsRig
 
-The uploaded PawsRig canvas rig lives in `frontend/pawsrig/`. PawsRig uses the bundled viewer's `cohost:voice` event to follow the playback clock. The server provides volume and an estimate of mouth roundness from the audio. PawsRig blends these signals into the mouth pose and closes it on pauses.
+The PawsRig canvas rig lives in `frontend/pawsrig/`. It reads the live audio spectrum to blend rounded and spread mouth shapes, keep consonant movements small, and close the mouth in pauses. WAV recordings use the volume and roundness estimates from the server. The eyelids meet briefly during a blink and reopen more slowly than they close.
 
 After editing the TypeScript rig, rebuild its browser module from the repository root with `npx --yes esbuild@0.25.12 frontend/pawsrig/stage.ts --bundle --format=esm --target=es2022 --outfile=frontend/pawsrig/stage.js`. The Python server serves this bundle directly.
 

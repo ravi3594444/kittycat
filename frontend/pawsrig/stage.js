@@ -1016,6 +1016,14 @@ function lerp(a, b, alpha) {
 var WALK_BOUNDS = 0.58;
 var WALK_SPEED_PER_SEC = 0.38;
 var POSED_ROUNDNESS = { closed: 0.5, small: 0.55, open_a: 0.45, wide_e: 0.12, round_o: 0.9 };
+var BLINK_CLOSE = 0.064;
+var BLINK_HOLD = 0.026;
+var BLINK_OPEN = 0.106;
+var BLINK_DURATION = BLINK_CLOSE + BLINK_HOLD + BLINK_OPEN;
+function easeBlink(value) {
+  const progress = Math.min(1, Math.max(0, value));
+  return progress * progress * (3 - 2 * progress);
+}
 var CatAnimationEngine = class {
   currentAction = "idle";
   queue = [];
@@ -1026,7 +1034,6 @@ var CatAnimationEngine = class {
   pose;
   config;
   blinkTimer = 2.4;
-  blinkProgress = 0;
   twitchTimer = 4.2;
   twitchProgress = 0;
   /** Layered continuous talking toggle (e.g. while user's TTS script speaks) */
@@ -1145,14 +1152,11 @@ var CatAnimationEngine = class {
     this.globalTime += frameTime;
     this.elapsed += dt;
     this.blinkTimer -= clampedDt;
-    if (this.blinkTimer <= 0) {
-      this.blinkProgress += clampedDt * 22;
-      if (this.blinkProgress >= Math.PI) {
-        this.blinkProgress = 0;
-        this.blinkTimer = 2.6 + (Math.sin(this.globalTime * 13.7) + 1) * 1.4;
-      }
+    const blinkElapsed = -this.blinkTimer;
+    if (blinkElapsed >= BLINK_DURATION) {
+      this.blinkTimer = 2.6 + (Math.sin(this.globalTime * 13.7) + 1) * 1.4;
     }
-    const blinkAmount = this.blinkProgress > 0 ? Math.pow(Math.sin(this.blinkProgress), 0.75) : 0;
+    const blinkAmount = blinkElapsed < BLINK_CLOSE ? easeBlink(blinkElapsed / BLINK_CLOSE) : 1 - easeBlink((blinkElapsed - BLINK_CLOSE - BLINK_HOLD) / BLINK_OPEN);
     this.twitchTimer -= clampedDt;
     if (this.twitchTimer <= 0) {
       this.twitchProgress += clampedDt * 11;
@@ -1192,8 +1196,9 @@ var CatAnimationEngine = class {
       let openness = 0;
       let phoneme = "closed";
       if (this.speech) {
-        const volume = Math.max(0, Math.min(1, (this.speech.volume - 0.055) / 0.945));
-        openness = 0.86 * Math.pow(volume, 0.78);
+        const volume = Math.max(0, Math.min(1, (this.speech.volume - 0.07) / 0.93));
+        openness = Math.pow(volume, 0.74) * this.speech.jaw;
+        phoneme = openness < 0.09 ? "closed" : openness < 0.3 ? "small" : this.speech.roundness > 0.65 ? "round_o" : this.speech.roundness < 0.35 ? "wide_e" : "open_a";
       } else {
         const s1 = Math.sin(this.globalTime * 13.5);
         const s2 = Math.sin(this.globalTime * 21.3 + 0.9);
@@ -1210,7 +1215,7 @@ var CatAnimationEngine = class {
       target.isSpeaking = openness > 0.15;
       if (this.currentAction === "idle" || this.currentAction === "sit") {
         target.headY += Math.sin(this.globalTime * 6.4) * 3.5 * openness;
-        target.headRot += Math.sin(this.globalTime * 3.2) * 0.06;
+        target.headRot += Math.sin(this.globalTime * 3.2) * 0.045 * openness;
       }
     }
     const blend = 1 - Math.exp(-14 * clampedDt);
@@ -1246,14 +1251,15 @@ var CatAnimationEngine = class {
     p.pupilY = lerp(p.pupilY, target.pupilY, blend);
     p.blush = lerp(p.blush, target.blush, blend);
     p.eyeStyle = target.eyeStyle;
-    const mouthRate = target.mouthOpen > p.mouthOpen ? 40 : 29;
+    const mouthRate = target.mouthOpen > p.mouthOpen ? 45 : target.mouthOpen < 0.025 ? 62 : 34;
     p.mouthOpen = lerp(p.mouthOpen, target.mouthOpen, 1 - Math.exp(-mouthRate * clampedDt));
-    if (p.mouthOpen < 0.012) p.mouthOpen = 0;
+    if (p.mouthOpen < 0.02) p.mouthOpen = 0;
     if (p.mouthStyle !== "talk" || target.mouthStyle !== "smile" || p.mouthOpen === 0) {
       p.mouthStyle = target.mouthStyle;
     }
     const roundness = this.speech?.roundness ?? POSED_ROUNDNESS[target.talkPhoneme];
-    p.mouthRoundness = lerp(p.mouthRoundness, roundness, fastBlend);
+    const shapeBlend = p.mouthOpen === 0 ? 1 : 1 - Math.exp(-42 * clampedDt);
+    p.mouthRoundness = lerp(p.mouthRoundness, roundness, shapeBlend);
     p.talkPhoneme = target.talkPhoneme;
     p.isSpeaking = p.mouthStyle === "talk" ? p.mouthOpen > 0.09 : target.isSpeaking;
     p.blink = target.blink;
@@ -1291,6 +1297,74 @@ function traceSmoothClosed(ctx, pts) {
     ctx.quadraticCurveTo(curr[0], curr[1], mx, my);
   }
   ctx.closePath();
+}
+var EYE_REGIONS = [
+  {
+    x: 222,
+    y: 448,
+    side: -1,
+    outline: [
+      [167, 445],
+      [180, 434],
+      [175, 424],
+      [189, 424],
+      [205, 409],
+      [221, 403],
+      [241, 404],
+      [257, 413],
+      [268, 431],
+      [270, 450],
+      [265, 470],
+      [253, 485],
+      [232, 490],
+      [199, 491],
+      [203, 482],
+      [191, 474],
+      [179, 459]
+    ]
+  },
+  {
+    x: 364,
+    y: 444,
+    side: 1,
+    outline: [
+      [322, 445],
+      [325, 425],
+      [336, 409],
+      [352, 401],
+      [372, 400],
+      [390, 413],
+      [397, 423],
+      [404, 422],
+      [401, 432],
+      [409, 441],
+      [396, 451],
+      [388, 468],
+      [383, 476],
+      [387, 480],
+      [360, 485],
+      [342, 481],
+      [329, 467]
+    ]
+  }
+];
+function furPatch(x, y, width, height, outline) {
+  const canvas = makeCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.translate(-x, -y);
+  traceSmoothClosed(ctx, outline);
+  ctx.fillStyle = "#fff";
+  ctx.filter = "blur(3px)";
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = "#fff";
+  ctx.stroke();
+  ctx.fill();
+  ctx.filter = "none";
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  ctx.fill();
+  ctx.globalCompositeOperation = "source-in";
+  return { canvas, ctx };
 }
 var HEAD_OUTLINE = [
   [114, 198],
@@ -1634,30 +1708,47 @@ function buildAssetsFromImage(img) {
   fgCtx.clip();
   fgCtx.drawImage(img, 0, 0, REF_W, REF_H);
   fgCtx.restore();
-  const buildEyePatchCanvas = (side) => {
-    const c = makeCanvas(104, 92);
-    const ectx = c.getContext("2d");
-    ectx.translate(52, 46);
-    const baseGrad = ectx.createRadialGradient(side * 3, 2, 27, side * 3, 2, 47);
-    baseGrad.addColorStop(0, "#FBF1E8");
-    baseGrad.addColorStop(0.76, "#FAF0E6");
-    baseGrad.addColorStop(1, "rgba(250, 240, 230, 0)");
-    ectx.fillStyle = baseGrad;
-    ectx.beginPath();
-    ectx.ellipse(side * 3, 2, 47, 40, 0, 0, Math.PI * 2);
-    ectx.fill();
-    const apricotGrad = ectx.createRadialGradient(side * 24, -24, 4, side * 22, -22, 36);
-    apricotGrad.addColorStop(0, "#F6BE84");
-    apricotGrad.addColorStop(0.6, "rgba(246, 190, 132, 0.75)");
-    apricotGrad.addColorStop(1, "rgba(246, 190, 132, 0)");
-    ectx.fillStyle = apricotGrad;
-    ectx.beginPath();
-    ectx.ellipse(side * 14, -18, 34, 24, 0, 0, Math.PI * 2);
-    ectx.fill();
-    return c;
+  const buildEyePatchCanvas = ({ x, y, side, outline }) => {
+    const { canvas, ctx } = furPatch(x - 60, y - 54, 120, 108, outline);
+    const coat = ctx.createLinearGradient(x, y - 45, x, y + 45);
+    coat.addColorStop(0, "#fec99b");
+    coat.addColorStop(0.65, "#fac197");
+    coat.addColorStop(1, "#fbd8cd");
+    ctx.fillStyle = coat;
+    ctx.fillRect(x - 60, y - 54, 120, 108);
+    ctx.globalCompositeOperation = "source-atop";
+    const cream = ctx.createLinearGradient(x + side * 30, y - 24, x - side * 40, y + 14);
+    cream.addColorStop(0, "rgba(255, 246, 231, 0)");
+    cream.addColorStop(1, "#fff6e7");
+    ctx.fillStyle = cream;
+    ctx.fillRect(x - 60, y - 54, 120, 108);
+    return canvas;
   };
-  const leftEyePatchCanvas = buildEyePatchCanvas(-1);
-  const rightEyePatchCanvas = buildEyePatchCanvas(1);
+  const leftEyePatchCanvas = buildEyePatchCanvas(EYE_REGIONS[0]);
+  const rightEyePatchCanvas = buildEyePatchCanvas(EYE_REGIONS[1]);
+  const muzzle = furPatch(249, 480, 100, 67, [
+    [260, 495],
+    [266, 491],
+    [277, 503],
+    [298, 491],
+    [307, 492],
+    [325, 503],
+    [331, 489],
+    [338, 492],
+    [333, 506],
+    [324, 511],
+    [319, 525],
+    [309, 534],
+    [294, 535],
+    [280, 530],
+    [273, 516],
+    [270, 507]
+  ]);
+  const muzzleCoat = muzzle.ctx.createLinearGradient(300, 489, 297, 536);
+  muzzleCoat.addColorStop(0, "#fcf3e6");
+  muzzleCoat.addColorStop(1, "#fff2e6");
+  muzzle.ctx.fillStyle = muzzleCoat;
+  muzzle.ctx.fillRect(249, 480, 100, 67);
   return {
     loaded: true,
     failed: false,
@@ -1670,7 +1761,8 @@ function buildAssetsFromImage(img) {
     headCanvas,
     fgCanvas,
     leftEyePatchCanvas,
-    rightEyePatchCanvas
+    rightEyePatchCanvas,
+    muzzlePatchCanvas: muzzle.canvas
   };
 }
 function ensurePhotoRigLoaded() {
@@ -1696,7 +1788,8 @@ function ensurePhotoRigLoaded() {
           headCanvas: makeCanvas(1, 1),
           fgCanvas: makeCanvas(1, 1),
           leftEyePatchCanvas: makeCanvas(1, 1),
-          rightEyePatchCanvas: makeCanvas(1, 1)
+          rightEyePatchCanvas: makeCanvas(1, 1),
+          muzzlePatchCanvas: makeCanvas(1, 1)
         };
       }
     };
@@ -1713,7 +1806,8 @@ function ensurePhotoRigLoaded() {
         headCanvas: makeCanvas(1, 1),
         fgCanvas: makeCanvas(1, 1),
         leftEyePatchCanvas: makeCanvas(1, 1),
-        rightEyePatchCanvas: makeCanvas(1, 1)
+        rightEyePatchCanvas: makeCanvas(1, 1),
+        muzzlePatchCanvas: makeCanvas(1, 1)
       };
     };
     img.src = PHOTO_URL;
@@ -1964,10 +2058,6 @@ function drawOversizedBentHoodieArm(ctx, side, angle, lift, actionLabel, fxTime 
 }
 function drawPhotoMatchedEyes(ctx, pose, assets) {
   const ink = "#3A2334";
-  const eyes = [
-    { x: 222, y: 448, side: -1, patch: assets.leftEyePatchCanvas },
-    { x: 364, y: 444, side: 1, patch: assets.rightEyePatchCanvas }
-  ];
   if (pose.blush > 0.36) {
     const extra = Math.min(0.55, (pose.blush - 0.34) * 0.9);
     ctx.save();
@@ -1991,13 +2081,14 @@ function drawPhotoMatchedEyes(ctx, pose, assets) {
     }
     ctx.restore();
   }
-  for (const eye of eyes) {
+  for (const eye of EYE_REGIONS) {
     const effectiveStyle = pose.eyeStyle === "wink" && eye.side === 1 ? "happy" : pose.eyeStyle;
-    const isBlinking = effectiveStyle === "normal" && pose.blink > 0.05;
+    const blink = pose.blink;
+    const isBlinking = (effectiveStyle === "normal" || effectiveStyle === "sparkle") && blink > 3e-3;
     if (effectiveStyle === "normal" && !isBlinking) {
       continue;
     }
-    if (effectiveStyle === "sparkle") {
+    if (effectiveStyle === "sparkle" && !isBlinking) {
       ctx.save();
       ctx.translate(eye.x + 14, eye.y - 16);
       const pulse = 0.85 + Math.sin(pose.fxTime * 10) * 0.2;
@@ -2017,39 +2108,52 @@ function drawPhotoMatchedEyes(ctx, pose, assets) {
       ctx.restore();
       continue;
     }
+    const patch = eye.side === -1 ? assets.leftEyePatchCanvas : assets.rightEyePatchCanvas;
     const maskEyePatch = () => {
-      ctx.drawImage(eye.patch, eye.x - 52, eye.y - 46);
+      ctx.drawImage(patch, eye.x - 60, eye.y - 54);
     };
     if (isBlinking) {
-      const lidH = Math.min(1, pose.blink);
-      const lidY = eye.y - 38 + lidH * 52;
-      const archCtrlY = lidY + (1 - lidH) * -14 + lidH * 10;
+      const halfWidth = eye.side === -1 ? 57 - 12 * blink : 49 - 10 * blink;
+      const x0 = eye.x - halfWidth;
+      const x1 = eye.x + halfWidth;
+      const top = eye.y - 28 + 46 * blink;
+      const upperCurve = eye.y - 75 + 106 * blink;
+      const bottom = eye.y + 31 - 13 * blink;
+      const lowerCurve = eye.y + 63 - 32 * blink;
       ctx.save();
-      ctx.beginPath();
-      if (lidH > 0.92) {
-        ctx.rect(eye.x - 52, eye.y - 46, 104, 92);
-      } else {
-        ctx.moveTo(eye.x - 52, eye.y - 46);
-        ctx.lineTo(eye.x + 52, eye.y - 46);
-        ctx.lineTo(eye.x + 52, lidY + 2);
-        ctx.quadraticCurveTo(eye.x, archCtrlY + 2, eye.x - 52, lidY + 2);
-        ctx.closePath();
-      }
-      ctx.clip();
+      const lids = new Path2D();
+      lids.rect(eye.x - 60, eye.y - 54, 120, 108);
+      lids.moveTo(x0, top);
+      lids.quadraticCurveTo(eye.x, upperCurve, x1, top);
+      lids.lineTo(x1, bottom);
+      lids.quadraticCurveTo(eye.x, lowerCurve, x0, bottom);
+      lids.closePath();
+      ctx.clip(lids, "evenodd");
       maskEyePatch();
       ctx.restore();
+      const lashWidth = eye.side === -1 ? 37 : 33;
+      const fractionSquared = (lashWidth / halfWidth) ** 2;
+      const curve = upperCurve - top;
+      const lashY = top + curve * (1 - fractionSquared) / 2;
+      const lashControl = lashY + curve * fractionSquared;
       ctx.save();
+      ctx.globalAlpha *= Math.min(1, blink * 4);
       ctx.strokeStyle = ink;
-      ctx.lineWidth = 5.6;
+      ctx.lineWidth = 3.1 + blink * 1.5;
       ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.moveTo(eye.x - 36, lidY);
-      ctx.quadraticCurveTo(eye.x, archCtrlY, eye.x + 36, lidY);
+      ctx.moveTo(eye.x - lashWidth, lashY);
+      ctx.quadraticCurveTo(eye.x, lashControl, eye.x + lashWidth, lashY);
       ctx.stroke();
-      ctx.lineWidth = 4.2;
+      ctx.lineWidth = 2.6;
       ctx.beginPath();
-      ctx.moveTo(eye.x + eye.side * 33, lidY - 1);
-      ctx.lineTo(eye.x + eye.side * 42, lidY - 6);
+      ctx.moveTo(eye.x + eye.side * (lashWidth - 3), lashY + 1);
+      ctx.quadraticCurveTo(
+        eye.x + eye.side * (lashWidth + 4),
+        lashY - 1,
+        eye.x + eye.side * (lashWidth + 7),
+        lashY - 6
+      );
       ctx.stroke();
       ctx.restore();
       continue;
@@ -2177,23 +2281,13 @@ function drawPhotoMatchedEyes(ctx, pose, assets) {
     }
   }
 }
-function drawPhotoMatchedMouth(ctx, pose) {
+function drawPhotoMatchedMouth(ctx, pose, assets) {
   const mx = 301;
-  const my = 507;
+  const my = 505;
   const ink = "#3A2334";
+  ctx.drawImage(assets.muzzlePatchCanvas, 249, 480);
   ctx.save();
   ctx.translate(mx, my);
-  ctx.save();
-  ctx.translate(0, 11);
-  ctx.scale(1, 0.69);
-  const patch = ctx.createRadialGradient(0, 0, 30, 0, 0, 49);
-  patch.addColorStop(0, "#FCF2E9");
-  patch.addColorStop(1, "rgba(252, 242, 233, 0)");
-  ctx.fillStyle = patch;
-  ctx.beginPath();
-  ctx.arc(0, 0, 49, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
   ctx.strokeStyle = ink;
   ctx.lineWidth = 3.2;
   ctx.lineCap = "round";
@@ -2258,29 +2352,47 @@ function drawPhotoMatchedMouth(ctx, pose) {
     case "smile":
     case "talk": {
       const open = pose.mouthStyle === "talk" ? pose.mouthOpen : 0;
-      const roundness = pose.mouthRoundness;
-      const width = 26 + open * (5 - roundness * 19);
-      const depth = open * (27 + roundness * 11);
+      const shape = Math.min(1, open * 2.4);
+      const pucker = pose.mouthRoundness * shape;
+      const spread = (1 - pose.mouthRoundness) * shape;
+      const width = 28 - 13 * pucker + 5 * spread;
+      const corner = 2 + 7 * pucker - 4 * spread;
+      const top = 2 - 9 * pucker;
+      const cornerX = width * (0.64 + 0.36 * pucker);
+      const upperCorner = corner + 11 - 22 * pucker;
+      const upperCenter = top + 6 * (1 - pucker);
+      const depth = open * (29 + 6 * pucker);
+      const chin = top + depth;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.moveTo(0, -11);
-      ctx.lineTo(0, 1);
+      ctx.moveTo(0, -17);
+      ctx.quadraticCurveTo(-0.5, -6, 0, top);
       ctx.stroke();
       const lips = new Path2D();
-      lips.moveTo(-width, 2);
-      lips.quadraticCurveTo(-width * 0.46, 13, 0, 1);
-      lips.quadraticCurveTo(width * 0.46, 13, width, 2);
+      lips.moveTo(-width, corner);
+      lips.bezierCurveTo(-cornerX, upperCorner, -width * 0.33, upperCenter, 0, top);
+      lips.bezierCurveTo(width * 0.33, upperCenter, cornerX, upperCorner, width, corner);
       if (open > 0) {
-        lips.quadraticCurveTo(width * 0.5, 13 + depth, 0, 1 + depth);
-        lips.quadraticCurveTo(-width * 0.5, 13 + depth, -width, 2);
+        const lowerCornerX = cornerX + (width - cornerX) * 0.75 * open;
+        const lowerCorner = upperCorner + depth * 0.9;
+        const lowerCenter = upperCenter + depth * (1 - 0.16 * open);
+        lips.bezierCurveTo(lowerCornerX, lowerCorner, width * 0.39, lowerCenter, 0, chin);
+        lips.bezierCurveTo(-width * 0.39, lowerCenter, -lowerCornerX, lowerCorner, -width, corner);
         lips.closePath();
-        ctx.fillStyle = "#80324A";
+        const shadow = ctx.createLinearGradient(0, top, 0, chin + 3);
+        shadow.addColorStop(0, "#522039");
+        shadow.addColorStop(1, "#9d4862");
+        ctx.fillStyle = shadow;
         ctx.fill(lips);
         ctx.save();
         ctx.clip(lips);
-        ctx.globalAlpha *= open;
-        ctx.fillStyle = "#F68AA6";
+        ctx.globalAlpha *= Math.max(0, Math.min(1, (open - 0.24) * 2.1));
+        const tongue = ctx.createLinearGradient(0, chin - depth * 0.58, 0, chin);
+        tongue.addColorStop(0, "#ce637f");
+        tongue.addColorStop(1, "#f49aae");
+        ctx.fillStyle = tongue;
         ctx.beginPath();
-        ctx.ellipse(0, 5 + depth, width * 0.62, 4 + depth * 0.34, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, chin + 1, width * 0.57, depth * 0.47, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
@@ -2761,7 +2873,7 @@ function renderPhotoRigScene(ctx, pose, appearance2, opts) {
   ctx.drawImage(assets.headCanvas, 0, 0);
   ctx.filter = "none";
   drawPhotoMatchedEyes(ctx, pose, assets);
-  drawPhotoMatchedMouth(ctx, pose);
+  drawPhotoMatchedMouth(ctx, pose, assets);
   if (appearance2.accessory === "crown") {
     drawPhotoExtraAccessory(ctx, appearance2);
   }
@@ -2876,10 +2988,10 @@ function analyseMouth(analyser) {
   const wave = new Float32Array(analyser.fftSize);
   const spectrum = new Float32Array(analyser.frequencyBinCount);
   const hzPerBin = analyser.context.sampleRate / analyser.fftSize;
-  const lowStart = Math.ceil(350 / hzPerBin);
-  const lowEnd = Math.min(spectrum.length, Math.ceil(1300 / hzPerBin));
-  const highStart = Math.ceil(1500 / hzPerBin);
-  const highEnd = Math.min(spectrum.length, Math.ceil(3600 / hzPerBin));
+  const first = Math.ceil(280 / hzPerBin);
+  const front = Math.ceil(1350 / hzPerBin);
+  const sibilance = Math.ceil(3650 / hzPerBin);
+  const last = Math.min(spectrum.length, Math.ceil(8e3 / hzPerBin));
   let peak = 0.12;
   return (elapsed) => {
     analyser.getFloatTimeDomainData(wave);
@@ -2887,16 +2999,21 @@ function analyseMouth(analyser) {
     for (const value of wave) squares += value * value;
     const rms = Math.sqrt(squares / wave.length);
     peak = Math.max(rms, 0.075, peak * Math.exp(-1.3 * elapsed));
-    if (rms < 5e-3) return { volume: 0, roundness: 0.5 };
+    if (rms < Math.max(4e-3, peak * 0.048)) return { volume: 0, roundness: 0.5, jaw: 0 };
     analyser.getFloatFrequencyData(spectrum);
     let low = 0;
-    let high = 0;
-    for (let i = lowStart; i < lowEnd; i++) low += Math.pow(10, spectrum[i] / 10);
-    for (let i = highStart; i < highEnd; i++) high += Math.pow(10, spectrum[i] / 10);
-    const ratio = low + high > 0 ? low / (low + high) : 0.5;
+    let mid = 0;
+    let bright = 0;
+    for (let i = first; i < front; i++) low += 10 ** (spectrum[i] / 10);
+    for (let i = front; i < sibilance; i++) mid += 10 ** (spectrum[i] / 10);
+    for (let i = sibilance; i < last; i++) bright += 10 ** (spectrum[i] / 10);
+    const vowels = low + mid;
+    const ratio = vowels > 0 ? low / vowels : 0.5;
+    const consonant = bright / (vowels + bright || 1);
     return {
       volume: rms / peak,
-      roundness: Math.min(1, Math.max(0, (ratio - 0.35) * 1.8 + 0.25))
+      roundness: Math.min(1, Math.max(0, (ratio - 0.25) * 1.6)),
+      jaw: 0.92 - 0.74 * consonant
     };
   };
 }
@@ -2970,7 +3087,8 @@ function mountPawsRig(target) {
     const position = speech?.sliceLength ? Math.max(0, speech.audio.currentTime * 1e3 / speech.sliceLength - 0.5) : 0;
     const recordingMouth = speech ? {
       volume: sample(speech.volumes, position, 0),
-      roundness: sample(speech.mouthRoundness, position, 0.5)
+      roundness: sample(speech.mouthRoundness, position, 0.5),
+      jaw: 0.87
     } : null;
     engine.setExternalSpeech(sampleLiveMouth?.(elapsed) ?? recordingMouth);
     engine.step(elapsed);

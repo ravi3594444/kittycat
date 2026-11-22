@@ -66,6 +66,12 @@ export type MouthStyle =
 
 export type TalkPhoneme = 'closed' | 'small' | 'open_a' | 'wide_e' | 'round_o';
 
+export interface SpeechSample {
+  volume: number;
+  roundness: number;
+  jaw: number;
+}
+
 export type PropType = 'none' | 'fish' | 'petHand';
 
 export type FxType =

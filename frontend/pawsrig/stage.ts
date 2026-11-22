@@ -1,7 +1,7 @@
 import { CatAnimationEngine } from './animationEngine';
 import { ANIMATION_BY_ID } from './animations';
 import { renderPhotoRigScene } from './photoRig';
-import type { AnimationId, CatAppearance } from './types';
+import type { AnimationId, CatAppearance, SpeechSample } from './types';
 
 interface SpeechPlayback {
   audio: HTMLAudioElement;
@@ -14,29 +14,34 @@ function analyseMouth(analyser: AnalyserNode) {
   const wave = new Float32Array(analyser.fftSize);
   const spectrum = new Float32Array(analyser.frequencyBinCount);
   const hzPerBin = analyser.context.sampleRate / analyser.fftSize;
-  const lowStart = Math.ceil(350 / hzPerBin);
-  const lowEnd = Math.min(spectrum.length, Math.ceil(1300 / hzPerBin));
-  const highStart = Math.ceil(1500 / hzPerBin);
-  const highEnd = Math.min(spectrum.length, Math.ceil(3600 / hzPerBin));
+  const first = Math.ceil(280 / hzPerBin);
+  const front = Math.ceil(1350 / hzPerBin);
+  const sibilance = Math.ceil(3650 / hzPerBin);
+  const last = Math.min(spectrum.length, Math.ceil(8000 / hzPerBin));
   let peak = 0.12;
 
-  return (elapsed: number) => {
+  return (elapsed: number): SpeechSample => {
     analyser.getFloatTimeDomainData(wave);
     let squares = 0;
     for (const value of wave) squares += value * value;
     const rms = Math.sqrt(squares / wave.length);
     peak = Math.max(rms, 0.075, peak * Math.exp(-1.3 * elapsed));
-    if (rms < 0.005) return { volume: 0, roundness: 0.5 };
+    if (rms < Math.max(0.004, peak * 0.048)) return { volume: 0, roundness: 0.5, jaw: 0 };
 
     analyser.getFloatFrequencyData(spectrum);
     let low = 0;
-    let high = 0;
-    for (let i = lowStart; i < lowEnd; i++) low += Math.pow(10, spectrum[i] / 10);
-    for (let i = highStart; i < highEnd; i++) high += Math.pow(10, spectrum[i] / 10);
-    const ratio = low + high > 0 ? low / (low + high) : 0.5;
+    let mid = 0;
+    let bright = 0;
+    for (let i = first; i < front; i++) low += 10 ** (spectrum[i] / 10);
+    for (let i = front; i < sibilance; i++) mid += 10 ** (spectrum[i] / 10);
+    for (let i = sibilance; i < last; i++) bright += 10 ** (spectrum[i] / 10);
+    const vowels = low + mid;
+    const ratio = vowels > 0 ? low / vowels : 0.5;
+    const consonant = bright / (vowels + bright || 1);
     return {
       volume: rms / peak,
-      roundness: Math.min(1, Math.max(0, (ratio - 0.35) * 1.8 + 0.25)),
+      roundness: Math.min(1, Math.max(0, (ratio - 0.25) * 1.6)),
+      jaw: 0.92 - 0.74 * consonant,
     };
   };
 }
@@ -59,7 +64,7 @@ const appearance: CatAppearance = {
   showActionLabel: false,
 };
 
-export function mountPawsRig() {
+export function mountPawsRig(target?: HTMLElement) {
   const engine = new CatAnimationEngine();
   const stage = document.createElement('div');
   stage.className = 'pawsrig-stage';
@@ -106,7 +111,7 @@ export function mountPawsRig() {
     frameId = requestAnimationFrame(frame);
     const elapsed = (now - lastFrame) / 1000;
     lastFrame = now;
-    if (!legacyCanvas?.isConnected) {
+    if (!target && !legacyCanvas?.isConnected) {
       detach();
       const previous = document.querySelector<HTMLElement>('#live2d-internal-wrapper > #canvas');
       if (!previous?.parentElement) return;
@@ -123,6 +128,7 @@ export function mountPawsRig() {
     const recordingMouth = speech ? {
       volume: sample(speech.volumes, position, 0),
       roundness: sample(speech.mouthRoundness, position, 0.5),
+      jaw: 0.87,
     } : null;
     engine.setExternalSpeech(sampleLiveMouth?.(elapsed) ?? recordingMouth);
     engine.step(elapsed);
@@ -136,7 +142,7 @@ export function mountPawsRig() {
       isOverlay: false,
       actionLabel: ANIMATION_BY_ID[action].label,
     })) {
-      if (!legacyCanvas.classList.contains('pawsrig-fallback')) {
+      if (legacyCanvas && !legacyCanvas.classList.contains('pawsrig-fallback')) {
         legacyCanvas.classList.add('pawsrig-fallback');
       }
       stage.dataset.action = action;
@@ -144,6 +150,10 @@ export function mountPawsRig() {
     }
   }
 
+  if (target) {
+    target.append(stage);
+    observer.observe(stage);
+  }
   frameId = requestAnimationFrame(frame);
   return {
     play(action: AnimationId) {

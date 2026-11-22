@@ -17,6 +17,7 @@ interface PhotoRigAssets {
   fgCanvas: HTMLCanvasElement;
   leftEyePatchCanvas: HTMLCanvasElement;
   rightEyePatchCanvas: HTMLCanvasElement;
+  muzzlePatchCanvas: HTMLCanvasElement;
 }
 
 let cachedAssets: PhotoRigAssets | null = null;
@@ -47,6 +48,47 @@ function traceSmoothClosed(
     ctx.quadraticCurveTo(curr[0], curr[1], mx, my);
   }
   ctx.closePath();
+}
+
+const EYE_REGIONS: Array<{ x: number; y: number; side: -1 | 1; outline: Array<[number, number]> }> = [
+  {
+    x: 222, y: 448, side: -1,
+    outline: [
+      [167, 445], [180, 434], [175, 424], [189, 424], [205, 409], [221, 403],
+      [241, 404], [257, 413], [268, 431], [270, 450], [265, 470], [253, 485],
+      [232, 490], [199, 491], [203, 482], [191, 474], [179, 459],
+    ],
+  },
+  {
+    x: 364, y: 444, side: 1,
+    outline: [
+      [322, 445], [325, 425], [336, 409], [352, 401], [372, 400], [390, 413],
+      [397, 423], [404, 422], [401, 432], [409, 441], [396, 451], [388, 468],
+      [383, 476], [387, 480], [360, 485], [342, 481], [329, 467],
+    ],
+  },
+];
+
+// Cache feathered face patches around the painted features at their native coordinates.
+function furPatch(
+  x: number, y: number, width: number, height: number, outline: Array<[number, number]>,
+) {
+  const canvas = makeCanvas(width, height);
+  const ctx = canvas.getContext('2d')!;
+  ctx.translate(-x, -y);
+  traceSmoothClosed(ctx, outline);
+  ctx.fillStyle = '#fff';
+  ctx.filter = 'blur(3px)';
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = '#fff';
+  ctx.stroke();
+  ctx.fill();
+  ctx.filter = 'none';
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-in';
+  return { canvas, ctx };
 }
 
 // Pixel-exact silhouettes traced from the 536x960 reference artwork
@@ -464,35 +506,35 @@ function buildAssetsFromImage(img: HTMLImageElement): PhotoRigAssets {
   fgCtx.drawImage(img, 0, 0, REF_W, REF_H);
   fgCtx.restore();
 
-  // Pre-rendered zero-lag feathered fur patches for smooth 60fps eye blinking & expressions
-  const buildEyePatchCanvas = (side: -1 | 1): HTMLCanvasElement => {
-    const c = makeCanvas(104, 92);
-    const ectx = c.getContext('2d')!;
-    ectx.translate(52, 46);
-
-    const baseGrad = ectx.createRadialGradient(side * 3, 2, 27, side * 3, 2, 47);
-    baseGrad.addColorStop(0, '#FBF1E8');
-    baseGrad.addColorStop(0.76, '#FAF0E6');
-    baseGrad.addColorStop(1, 'rgba(250, 240, 230, 0)');
-    ectx.fillStyle = baseGrad;
-    ectx.beginPath();
-    ectx.ellipse(side * 3, 2, 47, 40, 0, 0, Math.PI * 2);
-    ectx.fill();
-
-    const apricotGrad = ectx.createRadialGradient(side * 24, -24, 4, side * 22, -22, 36);
-    apricotGrad.addColorStop(0, '#F6BE84');
-    apricotGrad.addColorStop(0.6, 'rgba(246, 190, 132, 0.75)');
-    apricotGrad.addColorStop(1, 'rgba(246, 190, 132, 0)');
-    ectx.fillStyle = apricotGrad;
-    ectx.beginPath();
-    ectx.ellipse(side * 14, -18, 34, 24, 0, 0, Math.PI * 2);
-    ectx.fill();
-
-    return c;
+  const buildEyePatchCanvas = ({ x, y, side, outline }: typeof EYE_REGIONS[number]) => {
+    const { canvas, ctx } = furPatch(x - 60, y - 54, 120, 108, outline);
+    const coat = ctx.createLinearGradient(x, y - 45, x, y + 45);
+    coat.addColorStop(0, '#fec99b');
+    coat.addColorStop(0.65, '#fac197');
+    coat.addColorStop(1, '#fbd8cd');
+    ctx.fillStyle = coat;
+    ctx.fillRect(x - 60, y - 54, 120, 108);
+    ctx.globalCompositeOperation = 'source-atop';
+    const cream = ctx.createLinearGradient(x + side * 30, y - 24, x - side * 40, y + 14);
+    cream.addColorStop(0, 'rgba(255, 246, 231, 0)');
+    cream.addColorStop(1, '#fff6e7');
+    ctx.fillStyle = cream;
+    ctx.fillRect(x - 60, y - 54, 120, 108);
+    return canvas;
   };
 
-  const leftEyePatchCanvas = buildEyePatchCanvas(-1);
-  const rightEyePatchCanvas = buildEyePatchCanvas(1);
+  const leftEyePatchCanvas = buildEyePatchCanvas(EYE_REGIONS[0]);
+  const rightEyePatchCanvas = buildEyePatchCanvas(EYE_REGIONS[1]);
+  const muzzle = furPatch(249, 480, 100, 67, [
+    [260, 495], [266, 491], [277, 503], [298, 491], [307, 492], [325, 503],
+    [331, 489], [338, 492], [333, 506], [324, 511], [319, 525], [309, 534],
+    [294, 535], [280, 530], [273, 516], [270, 507],
+  ]);
+  const muzzleCoat = muzzle.ctx.createLinearGradient(300, 489, 297, 536);
+  muzzleCoat.addColorStop(0, '#fcf3e6');
+  muzzleCoat.addColorStop(1, '#fff2e6');
+  muzzle.ctx.fillStyle = muzzleCoat;
+  muzzle.ctx.fillRect(249, 480, 100, 67);
 
   return {
     loaded: true,
@@ -507,6 +549,7 @@ function buildAssetsFromImage(img: HTMLImageElement): PhotoRigAssets {
     fgCanvas,
     leftEyePatchCanvas,
     rightEyePatchCanvas,
+    muzzlePatchCanvas: muzzle.canvas,
   };
 }
 
@@ -535,6 +578,7 @@ export function ensurePhotoRigLoaded(): PhotoRigAssets | null {
           fgCanvas: makeCanvas(1, 1),
           leftEyePatchCanvas: makeCanvas(1, 1),
           rightEyePatchCanvas: makeCanvas(1, 1),
+          muzzlePatchCanvas: makeCanvas(1, 1),
         };
       }
     };
@@ -552,6 +596,7 @@ export function ensurePhotoRigLoaded(): PhotoRigAssets | null {
         fgCanvas: makeCanvas(1, 1),
         leftEyePatchCanvas: makeCanvas(1, 1),
         rightEyePatchCanvas: makeCanvas(1, 1),
+        muzzlePatchCanvas: makeCanvas(1, 1),
       };
     };
     img.src = PHOTO_URL;
@@ -860,27 +905,13 @@ function drawOversizedBentHoodieArm(
   ctx.restore();
 }
 
-/**
- * Draws seamless photo-matched anime eye blinks & expressions directly at the
- * exact eye pixel coordinates on the 536x960 head layer using pre-cached fur patches
- * and pixel-locked eyelid clipping for silky zero-lag 60fps blinks!
- */
+/** Draw expressive eyes over the painted eye regions. */
 function drawPhotoMatchedEyes(
   ctx: CanvasRenderingContext2D,
   pose: CatPose,
   assets: PhotoRigAssets
 ): void {
   const ink = '#3A2334';
-  const eyes: Array<{
-    x: number;
-    y: number;
-    side: -1 | 1;
-    patch: HTMLCanvasElement;
-  }> = [
-    { x: 222, y: 448, side: -1, patch: assets.leftEyePatchCanvas },
-    { x: 364, y: 444, side: 1, patch: assets.rightEyePatchCanvas },
-  ];
-
   // Subtle blush boost for Shy / Happy / Heart Hands / Pet
   if (pose.blush > 0.36) {
     const extra = Math.min(0.55, (pose.blush - 0.34) * 0.9);
@@ -907,17 +938,17 @@ function drawPhotoMatchedEyes(
     ctx.restore();
   }
 
-  for (const eye of eyes) {
+  for (const eye of EYE_REGIONS) {
     const effectiveStyle =
       pose.eyeStyle === 'wink' && eye.side === 1 ? 'happy' : pose.eyeStyle;
-    const isBlinking = effectiveStyle === 'normal' && pose.blink > 0.05;
+    const blink = pose.blink;
+    const isBlinking = (effectiveStyle === 'normal' || effectiveStyle === 'sparkle') && blink > 0.003;
 
-    // When normal & open, let the 100% original luminous hand-painted anime eyes shine!
     if (effectiveStyle === 'normal' && !isBlinking) {
       continue;
     }
 
-    if (effectiveStyle === 'sparkle') {
+    if (effectiveStyle === 'sparkle' && !isBlinking) {
       // Keep the 100% original glossy eyes and add bright anime star glints!
       ctx.save();
       ctx.translate(eye.x + 14, eye.y - 16);
@@ -939,48 +970,54 @@ function drawPhotoMatchedEyes(
       continue;
     }
 
-    // Zero-allocation stamp of the pre-rendered cream-to-apricot eye fur patch!
+    const patch = eye.side === -1 ? assets.leftEyePatchCanvas : assets.rightEyePatchCanvas;
     const maskEyePatch = () => {
-      ctx.drawImage(eye.patch, eye.x - 52, eye.y - 46);
+      ctx.drawImage(patch, eye.x - 60, eye.y - 54);
     };
 
     if (isBlinking) {
-      // Pixel-locked unified anime eyelid: fur mask bottom edge & dark lash arch move as ONE!
-      const lidH = Math.min(1, pose.blink);
-      const lidY = eye.y - 38 + lidH * 52;
-      const archCtrlY = lidY + (1 - lidH) * -14 + lidH * 10;
+      const halfWidth = eye.side === -1 ? 57 - 12 * blink : 49 - 10 * blink;
+      const x0 = eye.x - halfWidth;
+      const x1 = eye.x + halfWidth;
+      const top = eye.y - 28 + 46 * blink;
+      const upperCurve = eye.y - 75 + 106 * blink;
+      const bottom = eye.y + 31 - 13 * blink;
+      const lowerCurve = eye.y + 63 - 32 * blink;
 
       ctx.save();
-      ctx.beginPath();
-      if (lidH > 0.92) {
-        // Fully closed: cleanly cover the entire eye opening
-        ctx.rect(eye.x - 52, eye.y - 46, 104, 92);
-      } else {
-        // Curved clip strictly matching the descending upper eyelash curve!
-        ctx.moveTo(eye.x - 52, eye.y - 46);
-        ctx.lineTo(eye.x + 52, eye.y - 46);
-        ctx.lineTo(eye.x + 52, lidY + 2);
-        ctx.quadraticCurveTo(eye.x, archCtrlY + 2, eye.x - 52, lidY + 2);
-        ctx.closePath();
-      }
-      ctx.clip();
+      // The remaining opening shrinks continuously until the curves meet.
+      const lids = new Path2D();
+      lids.rect(eye.x - 60, eye.y - 54, 120, 108);
+      lids.moveTo(x0, top);
+      lids.quadraticCurveTo(eye.x, upperCurve, x1, top);
+      lids.lineTo(x1, bottom);
+      lids.quadraticCurveTo(eye.x, lowerCurve, x0, bottom);
+      lids.closePath();
+      ctx.clip(lids, 'evenodd');
       maskEyePatch();
       ctx.restore();
 
-      // Crisp upper lash line locked directly to the descending lid edge
+      const lashWidth = eye.side === -1 ? 37 : 33;
+      const fractionSquared = (lashWidth / halfWidth) ** 2;
+      const curve = upperCurve - top;
+      const lashY = top + curve * (1 - fractionSquared) / 2;
+      const lashControl = lashY + curve * fractionSquared;
       ctx.save();
+      ctx.globalAlpha *= Math.min(1, blink * 4);
       ctx.strokeStyle = ink;
-      ctx.lineWidth = 5.6;
+      ctx.lineWidth = 3.1 + blink * 1.5;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(eye.x - 36, lidY);
-      ctx.quadraticCurveTo(eye.x, archCtrlY, eye.x + 36, lidY);
+      ctx.moveTo(eye.x - lashWidth, lashY);
+      ctx.quadraticCurveTo(eye.x, lashControl, eye.x + lashWidth, lashY);
       ctx.stroke();
-      // Subtle outer winged lash flick matching the photo's eyeliner
-      ctx.lineWidth = 4.2;
+      ctx.lineWidth = 2.6;
       ctx.beginPath();
-      ctx.moveTo(eye.x + eye.side * 33, lidY - 1);
-      ctx.lineTo(eye.x + eye.side * 42, lidY - 6);
+      ctx.moveTo(eye.x + eye.side * (lashWidth - 3), lashY + 1);
+      ctx.quadraticCurveTo(
+        eye.x + eye.side * (lashWidth + 4), lashY - 1,
+        eye.x + eye.side * (lashWidth + 7), lashY - 6,
+      );
       ctx.stroke();
       ctx.restore();
       continue;
@@ -1128,27 +1165,16 @@ function drawPhotoMatchedEyes(
 /** Draw the speech mouth and expressions in the photo's head coordinates. */
 function drawPhotoMatchedMouth(
   ctx: CanvasRenderingContext2D,
-  pose: CatPose
+  pose: CatPose,
+  assets: PhotoRigAssets,
 ): void {
   const mx = 301;
-  const my = 507;
+  const my = 505;
   const ink = '#3A2334';
 
+  ctx.drawImage(assets.muzzlePatchCanvas, 249, 480);
   ctx.save();
   ctx.translate(mx, my);
-
-  // Feather the replacement muzzle in both directions around the original mouth.
-  ctx.save();
-  ctx.translate(0, 11);
-  ctx.scale(1, 0.69);
-  const patch = ctx.createRadialGradient(0, 0, 30, 0, 0, 49);
-  patch.addColorStop(0, '#FCF2E9');
-  patch.addColorStop(1, 'rgba(252, 242, 233, 0)');
-  ctx.fillStyle = patch;
-  ctx.beginPath();
-  ctx.arc(0, 0, 49, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
 
   ctx.strokeStyle = ink;
   ctx.lineWidth = 3.2;
@@ -1224,29 +1250,49 @@ function drawPhotoMatchedMouth(
     case 'smile':
     case 'talk': {
       const open = pose.mouthStyle === 'talk' ? pose.mouthOpen : 0;
-      const roundness = pose.mouthRoundness;
-      const width = 26 + open * (5 - roundness * 19);
-      const depth = open * (27 + roundness * 11);
+      const shape = Math.min(1, open * 2.4);
+      const pucker = pose.mouthRoundness * shape;
+      const spread = (1 - pose.mouthRoundness) * shape;
+      const width = 28 - 13 * pucker + 5 * spread;
+      const corner = 2 + 7 * pucker - 4 * spread;
+      const top = 2 - 9 * pucker;
+      const cornerX = width * (0.64 + 0.36 * pucker);
+      const upperCorner = corner + 11 - 22 * pucker;
+      const upperCenter = top + 6 * (1 - pucker);
+      const depth = open * (29 + 6 * pucker);
+      const chin = top + depth;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.moveTo(0, -11);
-      ctx.lineTo(0, 1);
+      ctx.moveTo(0, -17);
+      ctx.quadraticCurveTo(-0.5, -6, 0, top);
       ctx.stroke();
+
       const lips = new Path2D();
-      lips.moveTo(-width, 2);
-      lips.quadraticCurveTo(-width * 0.46, 13, 0, 1);
-      lips.quadraticCurveTo(width * 0.46, 13, width, 2);
+      lips.moveTo(-width, corner);
+      lips.bezierCurveTo(-cornerX, upperCorner, -width * 0.33, upperCenter, 0, top);
+      lips.bezierCurveTo(width * 0.33, upperCenter, cornerX, upperCorner, width, corner);
       if (open > 0) {
-        lips.quadraticCurveTo(width * 0.5, 13 + depth, 0, 1 + depth);
-        lips.quadraticCurveTo(-width * 0.5, 13 + depth, -width, 2);
+        const lowerCornerX = cornerX + (width - cornerX) * 0.75 * open;
+        const lowerCorner = upperCorner + depth * 0.9;
+        const lowerCenter = upperCenter + depth * (1 - 0.16 * open);
+        lips.bezierCurveTo(lowerCornerX, lowerCorner, width * 0.39, lowerCenter, 0, chin);
+        lips.bezierCurveTo(-width * 0.39, lowerCenter, -lowerCornerX, lowerCorner, -width, corner);
         lips.closePath();
-        ctx.fillStyle = '#80324A';
+        const shadow = ctx.createLinearGradient(0, top, 0, chin + 3);
+        shadow.addColorStop(0, '#522039');
+        shadow.addColorStop(1, '#9d4862');
+        ctx.fillStyle = shadow;
         ctx.fill(lips);
+
         ctx.save();
         ctx.clip(lips);
-        ctx.globalAlpha *= open;
-        ctx.fillStyle = '#F68AA6';
+        ctx.globalAlpha *= Math.max(0, Math.min(1, (open - 0.24) * 2.1));
+        const tongue = ctx.createLinearGradient(0, chin - depth * 0.58, 0, chin);
+        tongue.addColorStop(0, '#ce637f');
+        tongue.addColorStop(1, '#f49aae');
+        ctx.fillStyle = tongue;
         ctx.beginPath();
-        ctx.ellipse(0, 5 + depth, width * 0.62, 4 + depth * 0.34, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, chin + 1, width * 0.57, depth * 0.47, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
@@ -1823,11 +1869,10 @@ export function renderPhotoRigScene(
   ctx.drawImage(assets.headCanvas, 0, 0);
   ctx.filter = 'none';
 
-  // Live2D Eye Blinking & Expressions right on the photo's eyes (zero-lag cached fur patches!)
   drawPhotoMatchedEyes(ctx, pose, assets);
 
   // Draw the lips with the same transform as the head.
-  drawPhotoMatchedMouth(ctx, pose);
+  drawPhotoMatchedMouth(ctx, pose, assets);
 
   // Optional Crown accessory
   if (appearance.accessory === 'crown') {

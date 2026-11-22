@@ -10,6 +10,7 @@ import {
   CatPose,
   EngineConfig,
   EngineSnapshot,
+  SpeechSample,
 } from './types';
 
 function lerp(a: number, b: number, alpha: number): number {
@@ -19,6 +20,15 @@ function lerp(a: number, b: number, alpha: number): number {
 const WALK_BOUNDS = 0.58;
 const WALK_SPEED_PER_SEC = 0.38;
 const POSED_ROUNDNESS = { closed: 0.5, small: 0.55, open_a: 0.45, wide_e: 0.12, round_o: 0.9 };
+const BLINK_CLOSE = 0.064;
+const BLINK_HOLD = 0.026;
+const BLINK_OPEN = 0.106;
+const BLINK_DURATION = BLINK_CLOSE + BLINK_HOLD + BLINK_OPEN;
+
+function easeBlink(value: number): number {
+  const progress = Math.min(1, Math.max(0, value));
+  return progress * progress * (3 - 2 * progress);
+}
 
 /**
  * Pure, framework-agnostic 2D Cat animation state machine and pose interpolator.
@@ -35,14 +45,13 @@ export class CatAnimationEngine {
   private config: EngineConfig;
 
   private blinkTimer = 2.4;
-  private blinkProgress = 0;
   private twitchTimer = 4.2;
   private twitchProgress = 0;
 
   /** Layered continuous talking toggle (e.g. while user's TTS script speaks) */
   private talkingOverlay = false;
   private talkingTimeRemaining: number | null = null;
-  private speech: { volume: number; roundness: number } | null = null;
+  private speech: SpeechSample | null = null;
 
   constructor(config?: Partial<EngineConfig>) {
     this.config = {
@@ -79,7 +88,7 @@ export class CatAnimationEngine {
     }
   }
 
-  public setExternalSpeech(speech: { volume: number; roundness: number } | null): void {
+  public setExternalSpeech(speech: SpeechSample | null): void {
     this.speech = speech;
   }
 
@@ -187,18 +196,15 @@ export class CatAnimationEngine {
     this.globalTime += frameTime;
     this.elapsed += dt;
 
-    // Crisp, snappy anime eye blink (~140ms full blink cycle, never sluggish)
+    // The upper lid drops quickly, meets the lower lid, then opens more slowly.
     this.blinkTimer -= clampedDt;
-    if (this.blinkTimer <= 0) {
-      this.blinkProgress += clampedDt * 22;
-      if (this.blinkProgress >= Math.PI) {
-        this.blinkProgress = 0;
-        // Deterministic pseudo-variation based on globalTime
-        this.blinkTimer = 2.6 + ((Math.sin(this.globalTime * 13.7) + 1) * 1.4);
-      }
+    const blinkElapsed = -this.blinkTimer;
+    if (blinkElapsed >= BLINK_DURATION) {
+      this.blinkTimer = 2.6 + ((Math.sin(this.globalTime * 13.7) + 1) * 1.4);
     }
-    const blinkAmount =
-      this.blinkProgress > 0 ? Math.pow(Math.sin(this.blinkProgress), 0.75) : 0;
+    const blinkAmount = blinkElapsed < BLINK_CLOSE
+      ? easeBlink(blinkElapsed / BLINK_CLOSE)
+      : 1 - easeBlink((blinkElapsed - BLINK_CLOSE - BLINK_HOLD) / BLINK_OPEN);
 
     // Subtle ear twitch timing
     this.twitchTimer -= clampedDt;
@@ -254,8 +260,11 @@ export class CatAnimationEngine {
       let openness = 0;
       let phoneme: CatPose['talkPhoneme'] = 'closed';
       if (this.speech) {
-        const volume = Math.max(0, Math.min(1, (this.speech.volume - 0.055) / 0.945));
-        openness = 0.86 * Math.pow(volume, 0.78);
+        const volume = Math.max(0, Math.min(1, (this.speech.volume - 0.07) / 0.93));
+        openness = Math.pow(volume, 0.74) * this.speech.jaw;
+        phoneme = openness < 0.09 ? 'closed' : openness < 0.3 ? 'small'
+          : this.speech.roundness > 0.65 ? 'round_o'
+          : this.speech.roundness < 0.35 ? 'wide_e' : 'open_a';
       } else {
         const s1 = Math.sin(this.globalTime * 13.5);
         const s2 = Math.sin(this.globalTime * 21.3 + 0.9);
@@ -282,7 +291,7 @@ export class CatAnimationEngine {
       // Add subtle live conversational head nod if idle/sitting
       if (this.currentAction === 'idle' || this.currentAction === 'sit') {
         target.headY += Math.sin(this.globalTime * 6.4) * 3.5 * openness;
-        target.headRot += Math.sin(this.globalTime * 3.2) * 0.06;
+        target.headRot += Math.sin(this.globalTime * 3.2) * 0.045 * openness;
       }
     }
 
@@ -329,14 +338,15 @@ export class CatAnimationEngine {
 
     // Discrete expression & prop channels follow active target immediately
     p.eyeStyle = target.eyeStyle;
-    const mouthRate = target.mouthOpen > p.mouthOpen ? 40 : 29;
+    const mouthRate = target.mouthOpen > p.mouthOpen ? 45 : target.mouthOpen < 0.025 ? 62 : 34;
     p.mouthOpen = lerp(p.mouthOpen, target.mouthOpen, 1 - Math.exp(-mouthRate * clampedDt));
-    if (p.mouthOpen < 0.012) p.mouthOpen = 0;
+    if (p.mouthOpen < 0.02) p.mouthOpen = 0;
     if (p.mouthStyle !== 'talk' || target.mouthStyle !== 'smile' || p.mouthOpen === 0) {
       p.mouthStyle = target.mouthStyle;
     }
     const roundness = this.speech?.roundness ?? POSED_ROUNDNESS[target.talkPhoneme];
-    p.mouthRoundness = lerp(p.mouthRoundness, roundness, fastBlend);
+    const shapeBlend = p.mouthOpen === 0 ? 1 : 1 - Math.exp(-42 * clampedDt);
+    p.mouthRoundness = lerp(p.mouthRoundness, roundness, shapeBlend);
     p.talkPhoneme = target.talkPhoneme;
     p.isSpeaking = p.mouthStyle === 'talk' ? p.mouthOpen > 0.09 : target.isSpeaking;
     p.blink = target.blink;
