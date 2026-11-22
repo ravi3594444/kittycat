@@ -1,30 +1,31 @@
 import asyncio
+import base64
 import json
 import re
 import uuid
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional
 from loguru import logger
 
 from ..agent.output_types import DisplayText, Actions
 from ..live2d_model import Live2dModel
+from ..tts.fish_api_tts import PCM_SAMPLE_RATE, PCMUnsupportedError, TTSEngine as FishTTSEngine
 from ..tts.tts_interface import TTSInterface
 from ..utils.stream_audio import prepare_audio_payload
 from .types import WebSocketSend
 
 
+Utterance = asyncio.Queue[dict | None]
+
+
 class TTSTaskManager:
     """Manages TTS tasks and ensures ordered delivery to frontend while allowing parallel TTS generation"""
 
-    def __init__(self) -> None:
+    def __init__(self, stream_pcm: bool = False) -> None:
         self.task_list: List[asyncio.Task] = []
-        # Queue to store ordered payloads
-        self._payload_queue: asyncio.Queue[tuple[dict, int]] = asyncio.Queue()
-        # Task to handle sending payloads in order
+        self.stream_pcm = stream_pcm
+        self._utterances: asyncio.Queue[Utterance] = asyncio.Queue()
         self._sender_task: Optional[asyncio.Task] = None
-        # Counter for maintaining order
-        self._sequence_counter = 0
-        self._next_sequence_to_send = 0
 
     async def speak(
         self,
@@ -46,9 +47,10 @@ class TTSTaskManager:
             tts_engine: TTS engine instance
             websocket_send: WebSocket send function
         """
-        current_sequence = self._reserve_sequence(websocket_send)
+        utterance = self._reserve_utterance(websocket_send)
         if len(re.sub(r'[\s.,!?，。！？\'"』」）】\s]+', "", tts_text)) == 0:
-            await self._send_silent_payload(display_text, actions, current_sequence)
+            self._queue_caption(utterance, display_text, actions)
+            utterance.put_nowait(None)
             return
 
         logger.debug(f"Queuing TTS task for: {tts_text!r}")
@@ -59,68 +61,56 @@ class TTSTaskManager:
                 tts_text=tts_text,
                 display_text=display_text,
                 actions=actions,
-                live2d_model=live2d_model,
                 tts_engine=tts_engine,
-                sequence_number=current_sequence,
+                utterance=utterance,
             )
         )
         self.task_list.append(task)
 
     async def queue_audio_payload(self, payload: dict, websocket_send: WebSocketSend) -> None:
         """Queue an already prepared audio payload for ordered playback."""
-        sequence = self._reserve_sequence(websocket_send)
-        await self._payload_queue.put((payload, sequence))
+        utterance = self._reserve_utterance(websocket_send)
+        utterance.put_nowait(payload)
+        utterance.put_nowait(None)
 
-    def _reserve_sequence(self, websocket_send: WebSocketSend) -> int:
-        sequence = self._sequence_counter
-        self._sequence_counter += 1
+    def _reserve_utterance(self, websocket_send: WebSocketSend) -> Utterance:
+        utterance = asyncio.Queue()
+        self._utterances.put_nowait(utterance)
         if not self._sender_task or self._sender_task.done():
             self._sender_task = asyncio.create_task(
-                self._process_payload_queue(websocket_send)
+                self._send_utterances(self._utterances, websocket_send)
             )
-        return sequence
+        return utterance
 
-    async def _process_payload_queue(self, websocket_send: WebSocketSend) -> None:
-        """
-        Process and send payloads in correct order.
-        Runs continuously until all payloads are processed.
-        """
-        buffered_payloads: Dict[int, Dict] = {}
-
+    async def _send_utterances(
+        self, utterances: asyncio.Queue[Utterance], websocket_send: WebSocketSend
+    ) -> None:
+        """Send each utterance in order while synthesis can run in parallel."""
         while True:
+            utterance = await utterances.get()
             try:
-                # Get payload from queue
-                payload, sequence_number = await self._payload_queue.get()
-                buffered_payloads[sequence_number] = payload
-
-                # Send payloads in order
-                while self._next_sequence_to_send in buffered_payloads:
-                    next_payload = buffered_payloads.pop(self._next_sequence_to_send)
+                while (payload := await utterance.get()) is not None:
                     try:
-                        await websocket_send(json.dumps(next_payload))
+                        await websocket_send(json.dumps(payload))
                     except Exception as exc:
                         logger.warning("Audio delivery failed ({})", type(exc).__name__)
-                    self._next_sequence_to_send += 1
-
-                self._payload_queue.task_done()
-
-            except asyncio.CancelledError:
-                break
+            finally:
+                utterances.task_done()
 
     async def drain(self) -> bool:
         """Wait for synthesis and ordered delivery, returning whether any payload was sent."""
         if self.task_list:
             await asyncio.gather(*self.task_list)
-        if not self._sequence_counter:
+        if self._sender_task is None:
             return False
-        await asyncio.wait_for(self._payload_queue.join(), timeout=5)
+        await asyncio.wait_for(self._utterances.join(), timeout=5)
         return True
 
-    async def _send_silent_payload(
+    def _queue_caption(
         self,
+        utterance: Utterance,
         display_text: DisplayText,
         actions: Optional[Actions],
-        sequence_number: int,
     ) -> None:
         """Queue a silent audio payload"""
         audio_payload = prepare_audio_payload(
@@ -128,20 +118,25 @@ class TTSTaskManager:
             display_text=display_text,
             actions=actions,
         )
-        await self._payload_queue.put((audio_payload, sequence_number))
+        utterance.put_nowait(audio_payload)
 
     async def _process_tts(
         self,
         tts_text: str,
         display_text: DisplayText,
         actions: Optional[Actions],
-        live2d_model: Live2dModel,
         tts_engine: TTSInterface,
-        sequence_number: int,
+        utterance: Utterance,
     ) -> None:
         """Process TTS generation and queue the result for ordered delivery"""
         audio_file_path = None
         try:
+            if self.stream_pcm and isinstance(tts_engine, FishTTSEngine):
+                try:
+                    await self._stream_tts(utterance, tts_engine, tts_text, display_text)
+                    return
+                except PCMUnsupportedError:
+                    logger.info("Fish Audio PCM is unavailable. Falling back to WAV.")
             audio_file_path = await self._generate_audio(tts_engine, tts_text)
             payload = await asyncio.to_thread(
                 prepare_audio_payload,
@@ -149,23 +144,43 @@ class TTSTaskManager:
                 display_text=display_text,
                 actions=actions,
             )
-            # Queue the payload with its sequence number
-            await self._payload_queue.put((payload, sequence_number))
+            utterance.put_nowait(payload)
 
         except Exception as e:
             logger.error(f"Error preparing audio payload: {e}")
-            # Queue silent payload for error case
-            payload = prepare_audio_payload(
-                audio_path=None,
-                display_text=display_text,
-                actions=actions,
-            )
-            await self._payload_queue.put((payload, sequence_number))
+            self._queue_caption(utterance, display_text, actions)
 
         finally:
+            utterance.put_nowait(None)
             if audio_file_path:
                 tts_engine.remove_file(audio_file_path)
                 logger.debug("Audio cache file cleaned.")
+
+    async def _stream_tts(
+        self, utterance: Utterance, engine: FishTTSEngine, text: str, display: DisplayText
+    ) -> None:
+        stream_id = uuid.uuid4().hex
+        started = False
+        try:
+            async for chunk in engine.stream_pcm(text):
+                if not started:
+                    utterance.put_nowait({
+                        "type": "audio-stream-start",
+                        "stream_id": stream_id,
+                        "sample_rate": PCM_SAMPLE_RATE,
+                        "display_text": display.to_dict(),
+                    })
+                    started = True
+                utterance.put_nowait({
+                    "type": "audio-stream-chunk",
+                    "stream_id": stream_id,
+                    "audio": base64.b64encode(chunk).decode("ascii"),
+                })
+        except Exception as exc:
+            if not started:
+                raise
+            logger.warning("Fish Audio stream stopped early ({})", type(exc).__name__)
+        utterance.put_nowait({"type": "audio-stream-end", "stream_id": stream_id})
 
     async def _generate_audio(self, tts_engine: TTSInterface, text: str) -> str:
         """Generate audio file from text"""
@@ -183,7 +198,5 @@ class TTSTaskManager:
         self.task_list.clear()
         if self._sender_task:
             self._sender_task.cancel()
-        self._sequence_counter = 0
-        self._next_sequence_to_send = 0
-        # Create a new queue to clear any pending items
-        self._payload_queue = asyncio.Queue()
+        self._sender_task = None
+        self._utterances = asyncio.Queue()

@@ -54,6 +54,7 @@ class ServiceContext:
         self.asr_engine: ASRInterface = None
         self.tts_engine: TTSInterface = None
         self.fish_audio_http_client: httpx.AsyncClient | None = None
+        self.pcm_audio_ready = False
         self.agent_engine: AgentInterface = None
         # translate_engine can be none if translation is disabled
         self.vad_engine: VADInterface | None = None
@@ -79,6 +80,14 @@ class ServiceContext:
     def __str__(self):
         character = self.character_config
         return f"ServiceContext(character={character.conf_uid if character else None})"
+
+    @property
+    def can_stream_pcm(self) -> bool:
+        return (
+            self.pcm_audio_ready
+            and self.live2d_model is not None
+            and self.live2d_model.model_info.get("renderer") == "pawsrig"
+        )
 
     # ==== Initializers
 

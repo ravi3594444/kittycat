@@ -49,7 +49,9 @@
   let usePawsRig = false;
   let pawsRig;
   let latestSpeech;
+  let streamAnalyser;
   let pawsRigLoad;
+  let announcedPCM;
 
   function send(message) {
     if (socket?.readyState !== WebSocket.OPEN) {
@@ -64,10 +66,22 @@
     return send({ type: "cohost-control", action, ...values });
   }
 
+  function announcePCM() {
+    if (socket?.readyState !== WebSocket.OPEN || !modelName) return;
+    const ready = usePawsRig && Boolean(window.kittycatStreamAudio?.ready);
+    if (announcedPCM === ready) return;
+    if (control("streaming-audio", { enabled: ready })) announcedPCM = ready;
+  }
+
+  function unlockPCM() {
+    if (usePawsRig && !window.kittycatStreamAudio?.ready) window.kittycatStreamAudio?.unlock();
+  }
+
   function selectRenderer(renderer) {
     const enabled = renderer === "pawsrig";
     if (enabled === usePawsRig) return;
     usePawsRig = enabled;
+    window.kittycatStreamAudio?.enable(enabled);
     if (!enabled) {
       pawsRig?.destroy();
       pawsRig = undefined;
@@ -79,6 +93,7 @@
       if (!usePawsRig || pawsRig) return;
       pawsRig = mountPawsRig();
       if (latestSpeech) pawsRig.useSpeech(latestSpeech);
+      if (streamAnalyser) pawsRig.useAnalyser(streamAnalyser);
     }).catch(() => {
       pawsRigLoad = undefined;
       if (usePawsRig) status.textContent = "The PawsRig avatar could not load.";
@@ -170,6 +185,7 @@
     if (message.type === "set-model-and-conf") {
       modelName = message.model_info?.name;
       selectRenderer(message.model_info?.renderer);
+      announcePCM();
       clientId = message.client_uid ?? clientId;
       pendingMotion = null;
     } else if (message.type === "avatar-motion") {
@@ -256,7 +272,18 @@
     audio.addEventListener("ended", releaseSpeech, { once: true });
   });
 
+  window.addEventListener("cohost:stream-voice", event => {
+    streamAnalyser = event.detail;
+    pawsRig?.useAnalyser(streamAnalyser);
+  });
+  window.addEventListener("cohost:pcm-state", announcePCM);
+  window.addEventListener("pointerup", unlockPCM, true);
+  window.addEventListener("keydown", unlockPCM, true);
+
   window.addEventListener("cohost:socket", event => {
+    window.kittycatStreamAudio?.stop();
+    modelName = undefined;
+    announcedPCM = undefined;
     socket = event.detail.socket;
     stopOutput = event.detail.stopOutput;
     const active = socket;
@@ -266,6 +293,7 @@
     });
     active.addEventListener("close", () => {
       if (active !== socket) return;
+      window.kittycatStreamAudio?.stop();
       status.textContent = "The co-host is disconnected.";
       list.replaceChildren();
       edits.clear();

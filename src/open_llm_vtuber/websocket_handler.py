@@ -636,7 +636,9 @@ class WebSocketHandler:
         item_id = data.get("id")
         item = session.items.get(item_id) if isinstance(item_id, str) else None
         status = ""
-        if action == "lesson" and isinstance(data.get("lesson"), str):
+        if action == "streaming-audio":
+            self.client_contexts[client_uid].pcm_audio_ready = data.get("enabled") is True
+        elif action == "lesson" and isinstance(data.get("lesson"), str):
             session.lesson = data["lesson"].strip()[:4000]
             status = "Lesson context saved for this session."
         elif action == "floor":
@@ -740,13 +742,15 @@ class WebSocketHandler:
 
     async def _speak_cohost(self, websocket, client_uid, session, item, answer):
         context = self.client_contexts[client_uid]
-        tts = TTSTaskManager()
+        tts = TTSTaskManager(stream_pcm=context.can_stream_pcm)
 
         async def send(payload: str):
             data = json.loads(payload)
-            if data.get("type") == "audio":
+            message_type = data.get("type")
+            if message_type in {"audio", "audio-stream-start"}:
                 session.last_response_ms = round((monotonic() - item.added_at) * 1000)
-                session.metrics["spoken" if data.get("audio") else "caption_fallback"] += 1
+                spoken = message_type == "audio-stream-start" or bool(data.get("audio"))
+                session.metrics["spoken" if spoken else "caption_fallback"] += 1
             await websocket.send_text(payload)
 
         try:

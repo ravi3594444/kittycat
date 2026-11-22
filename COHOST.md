@@ -17,6 +17,8 @@ With the default `unconfigured` chat key, you can type `hi` in the main chat to 
 
 Kittycat automatically uses realtime mode and low reasoning effort for `mercury-3` on Inception's API. The first complete sentence or substantial clause can go to Fish Audio while Mercury is still generating. The server keeps Fish Audio connections open between spoken turns when the provider supports it. [Inception voice tuning](https://docs.inceptionlabs.ai/usecases/voice)
 
+PawsRig plays [16-bit Fish Audio PCM](https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech) as chunks arrive on the existing WebSocket. A browser interaction unlocks Web Audio. The browser's analyser reads the playback signal for the mouth animation. The WAV path handles browsers that have yet to unlock Web Audio, the Classic avatar, group chat, and prerecorded clips.
+
 ## Try the voice on the live page
 
 Generate the sample once from the co-host's checkout. The script prompts for your Fish Audio API key when the shell and config have no key set.
@@ -27,9 +29,9 @@ uv run --no-project --python 3.12 --with-requirements requirements-cohost.txt py
 
 Refresh the site and choose **Play voice demo** under **Co-host controls**. The sample plays through the avatar's speech animation and lip sync. The browser replays the generated recording, and each click uses that recording.
 
-Little Cat uses [Sarah](https://fish.audio/m/933563129e564b19a115bedd57b7406a/) by default. The server requests 4 dB of volume reduction and sends everyday speech in the voice's natural delivery. The agent can start a genuinely funny line with `Ha ha,` to cue a soft laugh. Fish S2 accepts [inline emotion cues](https://docs.fish.audio/developer-guide/core-features/emotions) when directing an approved reply or demo. To try Fish's faster synthesis mode, set `latency: low` under `fish_api_tts` in `conf.yaml` and restart the service. To audition another voice, set `FISH_AUDIO_VOICE_ID` in the shell and run the demo command again.
+Little Cat uses [Fish Official Hannah](https://fish.audio/m/9a9cf47702da476aa4629e2506d4a857/) by default. The server requests 4 dB of volume reduction and sends everyday speech in the voice's natural delivery. The agent can start a genuinely funny line with `Ha ha,` to cue a soft laugh. Fish S2 accepts [inline emotion cues](https://docs.fish.audio/developer-guide/core-features/emotions) when directing an approved reply or demo. To try Fish's faster synthesis mode, set `latency: low` under `fish_api_tts` in `conf.yaml` and restart the service. To audition another voice, set `FISH_AUDIO_VOICE_ID` in the shell and run the demo command again.
 
-In **Co-host controls**, choose a **Voice emotion** and select **Play emotion sample**. The samples use the same line in ten deliveries, including a soft laugh. Kittycat replays the recordings with lip sync without a synthesis request. The recordings are in the [voice samples folder](frontend/voice-samples).
+In **Co-host controls**, choose a **Voice emotion** and select **Play emotion sample**. These prerecorded samples from the earlier voice use the same line in ten deliveries, including a soft laugh. Run the demo command above to generate a recording in the configured voice with two emotion cues. The earlier recordings are in the [voice samples folder](frontend/voice-samples).
 
 ## Use the co-host
 

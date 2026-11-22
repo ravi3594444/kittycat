@@ -49,7 +49,7 @@ async def process_single_conversation(
         str: Complete response text
     """
     # Create TTSTaskManager for this conversation
-    tts_manager = TTSTaskManager()
+    tts_manager = TTSTaskManager(stream_pcm=context.can_stream_pcm)
     full_response = ""  # Initialize full_response here
 
     try:

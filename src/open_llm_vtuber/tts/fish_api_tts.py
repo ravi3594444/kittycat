@@ -3,6 +3,8 @@ import os
 import re
 import uuid
 import wave
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Literal
 
@@ -11,18 +13,27 @@ import httpx
 from .tts_interface import TTSInterface
 
 
-SARAH_VOICE_ID = "933563129e564b19a115bedd57b7406a"
-LEGACY_LITTLE_CAT_VOICE_ID = "7f92f8afb8ec43bf81429cc1c9199cb1"
+HANNAH_VOICE_ID = "9a9cf47702da476aa4629e2506d4a857"
+LEGACY_LITTLE_CAT_VOICE_IDS = frozenset({
+    "7f92f8afb8ec43bf81429cc1c9199cb1",
+    "933563129e564b19a115bedd57b7406a",
+})
 LAUGH_START = re.compile(r"\s*ha[\s,-]*ha\b", re.IGNORECASE)
+PCM_SAMPLE_RATE = 24000
+PCM_CHUNK_BYTES = PCM_SAMPLE_RATE * 2 * 40 // 1000
+
+
+class PCMUnsupportedError(RuntimeError):
+    """The configured Fish Audio endpoint did not accept raw PCM output."""
 
 
 class TTSEngine(TTSInterface):
-    """Synthesize a WAV file through the Fish Audio HTTP API."""
+    """Synthesize WAV files and stream PCM from the Fish Audio HTTP API."""
 
     def __init__(
         self,
         api_key: str = "",
-        reference_id: str = SARAH_VOICE_ID,
+        reference_id: str = HANNAH_VOICE_ID,
         latency: Literal["normal", "balanced", "low"] = "balanced",
         base_url: str = "https://api.fish.audio",
         model: str = "s2.1-pro-free",
@@ -30,8 +41,8 @@ class TTSEngine(TTSInterface):
         http_client: httpx.AsyncClient | None = None,
     ):
         self.api_key = os.getenv("FISH_AUDIO_API_KEY") or api_key
-        if style == "little_cat" and reference_id == LEGACY_LITTLE_CAT_VOICE_ID:
-            reference_id = SARAH_VOICE_ID
+        if style == "little_cat" and reference_id in LEGACY_LITTLE_CAT_VOICE_IDS:
+            reference_id = HANNAH_VOICE_ID
         self.reference_id = os.getenv("FISH_AUDIO_VOICE_ID") or reference_id
         self.latency = latency
         self.url = f"{base_url.rstrip('/')}/v1/tts"
@@ -80,6 +91,34 @@ class TTSEngine(TTSInterface):
         path = Path(self.generate_cache_file_name(file_name_no_ext or uuid.uuid4().hex))
         path.write_bytes(response.content)
         return str(path)
+
+    async def stream_pcm(self, text: str) -> AsyncIterator[bytes]:
+        """Yield 40 ms blocks of mono signed 16-bit PCM as Fish sends them."""
+        options = self._request_options(text)
+        options["json"].update(format="pcm", sample_rate=PCM_SAMPLE_RATE)
+        try:
+            async with AsyncExitStack() as stack:
+                client = self.http_client or await stack.enter_async_context(httpx.AsyncClient())
+                async with client.stream("POST", self.url, **options) as response:
+                    if response.status_code in {400, 415, 422}:
+                        raise PCMUnsupportedError("Fish Audio rejected PCM output.")
+                    if not response.is_success:
+                        raise RuntimeError(f"Fish Audio synthesis returned HTTP {response.status_code}.")
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "json" in content_type or content_type.startswith("text/"):
+                        raise RuntimeError("Fish Audio returned text instead of audio.")
+                    first = True
+                    async for chunk in response.aiter_bytes(chunk_size=PCM_CHUNK_BYTES):
+                        if first and chunk.startswith((b"RIFF", b"ID3", b"OggS")):
+                            raise PCMUnsupportedError("Fish Audio returned encoded audio instead of PCM.")
+                        if len(chunk) % 2:
+                            raise RuntimeError("Fish Audio returned an incomplete PCM sample.")
+                        first = False
+                        yield chunk
+                    if first:
+                        raise RuntimeError("Fish Audio returned an empty PCM stream.")
+        except httpx.RequestError:
+            raise RuntimeError("Fish Audio synthesis is unavailable.") from None
 
     def generate_audio(self, text: str, file_name_no_ext: str | None = None) -> str:
         try:

@@ -2872,6 +2872,34 @@ function renderPhotoRigScene(ctx, pose, appearance2, opts) {
 }
 
 // frontend/pawsrig/stage.ts
+function analyseMouth(analyser) {
+  const wave = new Float32Array(analyser.fftSize);
+  const spectrum = new Float32Array(analyser.frequencyBinCount);
+  const hzPerBin = analyser.context.sampleRate / analyser.fftSize;
+  const lowStart = Math.ceil(350 / hzPerBin);
+  const lowEnd = Math.min(spectrum.length, Math.ceil(1300 / hzPerBin));
+  const highStart = Math.ceil(1500 / hzPerBin);
+  const highEnd = Math.min(spectrum.length, Math.ceil(3600 / hzPerBin));
+  let peak = 0.12;
+  return (elapsed) => {
+    analyser.getFloatTimeDomainData(wave);
+    let squares = 0;
+    for (const value of wave) squares += value * value;
+    const rms = Math.sqrt(squares / wave.length);
+    peak = Math.max(rms, 0.075, peak * Math.exp(-1.3 * elapsed));
+    if (rms < 5e-3) return { volume: 0, roundness: 0.5 };
+    analyser.getFloatFrequencyData(spectrum);
+    let low = 0;
+    let high = 0;
+    for (let i = lowStart; i < lowEnd; i++) low += Math.pow(10, spectrum[i] / 10);
+    for (let i = highStart; i < highEnd; i++) high += Math.pow(10, spectrum[i] / 10);
+    const ratio = low + high > 0 ? low / (low + high) : 0.5;
+    return {
+      volume: rms / peak,
+      roundness: Math.min(1, Math.max(0, (ratio - 0.35) * 1.8 + 0.25))
+    };
+  };
+}
 function sample(values, position, fallback) {
   const frame = Math.floor(position);
   const start = values?.[frame] ?? fallback;
@@ -2905,6 +2933,7 @@ function mountPawsRig() {
   let lastFrame = performance.now();
   let frameId = 0;
   let speech = null;
+  let sampleLiveMouth = null;
   const observer = new ResizeObserver(([{ contentRect }]) => {
     const scale = Math.min(contentRect.width / 536, contentRect.height / 960);
     width = Math.floor(536 * scale);
@@ -2939,10 +2968,11 @@ function mountPawsRig() {
     if (!width || !height) return;
     if (speech?.audio.paused || speech?.audio.ended || speech?.audio.error) speech = null;
     const position = speech?.sliceLength ? Math.max(0, speech.audio.currentTime * 1e3 / speech.sliceLength - 0.5) : 0;
-    engine.setExternalSpeech(speech ? {
+    const recordingMouth = speech ? {
       volume: sample(speech.volumes, position, 0),
       roundness: sample(speech.mouthRoundness, position, 0.5)
-    } : null);
+    } : null;
+    engine.setExternalSpeech(sampleLiveMouth?.(elapsed) ?? recordingMouth);
     engine.step(elapsed);
     const action = engine.getSnapshot().currentAction;
     const pose = engine.getPose();
@@ -2967,6 +2997,9 @@ function mountPawsRig() {
     },
     useSpeech(playback) {
       speech = playback;
+    },
+    useAnalyser(analyser) {
+      sampleLiveMouth = analyser ? analyseMouth(analyser) : null;
     },
     destroy() {
       cancelAnimationFrame(frameId);
