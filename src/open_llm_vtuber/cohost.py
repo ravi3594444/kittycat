@@ -77,7 +77,14 @@ def available_motions(model_info: dict) -> tuple[str, ...]:
     return tuple(motion for motion in AVATAR_MOTIONS if motion in model_info.get("motionMap", {}))
 
 
-def motion_tool(motions: tuple[str, ...]) -> dict:
+def motion_tool(motions: tuple[str, ...], *, spoken: bool = False) -> dict:
+    properties = {"motion": {"type": "string", "enum": list(motions)}}
+    if spoken:
+        properties["acknowledgment"] = {
+            "type": "string",
+            "maxLength": 110,
+            "description": "One short line for Kitty to say as she starts, in the user's language.",
+        }
     return {
         "type": "function",
         "function": {
@@ -90,8 +97,8 @@ def motion_tool(motions: tuple[str, ...]) -> dict:
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"motion": {"type": "string", "enum": list(motions)}},
-                "required": ["motion"],
+                "properties": properties,
+                "required": list(properties),
                 "additionalProperties": False,
             },
         },
@@ -99,8 +106,8 @@ def motion_tool(motions: tuple[str, ...]) -> dict:
 
 
 def parse_cohost_tool_call(
-    event: object, name: str, field_name: str
-) -> tuple[ToolCallObject, str] | None:
+    event: object, name: str, *fields: str
+) -> tuple[ToolCallObject, dict[str, str]] | None:
     if not isinstance(event, list) or len(event) != 1 or not isinstance(event[0], ToolCallObject):
         return None
     call = event[0]
@@ -111,15 +118,19 @@ def parse_cohost_tool_call(
         arguments = json.loads(function.arguments)
     except (ValueError, TypeError):
         return None
-    if not isinstance(arguments, dict) or set(arguments) != {field_name}:
+    if not isinstance(arguments, dict) or set(arguments) != set(fields):
         return None
-    value = arguments[field_name]
-    return (call, value) if isinstance(value, str) else None
+    return (call, arguments) if all(isinstance(value, str) for value in arguments.values()) else None
 
 
 def motion_from_tool_calls(event: object, motions: tuple[str, ...]) -> str | None:
     parsed = parse_cohost_tool_call(event, "play_avatar_motion", "motion")
-    return parsed[1] if parsed and parsed[1] in motions else None
+    return parsed[1]["motion"] if parsed and parsed[1]["motion"] in motions else None
+
+
+def motion_shortcut(text: str) -> str | None:
+    shortcut = text.strip().casefold()
+    return shortcut[1:] if shortcut.startswith("!") and shortcut[1:] in AVATAR_MOTIONS else None
 
 
 def find_acknowledgment(text: str) -> tuple[str, tuple[str, ...]] | None:
@@ -191,10 +202,7 @@ class CohostSession:
         return [{"question": question, "answer": answer} for _, question, answer in self.live_replies]
 
     def match_motion(self, text: str) -> str | None:
-        shortcut = text.strip().casefold()
-        if shortcut.startswith("!") and shortcut[1:] in AVATAR_MOTIONS:
-            return shortcut[1:]
-        return self.learned_motions.get(self._motion_memory_key(text))
+        return motion_shortcut(text) or self.learned_motions.get(self._motion_memory_key(text))
 
     @staticmethod
     def _motion_memory_key(text: str) -> str:

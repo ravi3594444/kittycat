@@ -24,6 +24,7 @@ from .cohost import (
     VOICE_SAMPLE_TEXT,
     VOICE_SAMPLES,
     available_motions,
+    motion_shortcut,
 )
 from .agent.output_types import DisplayText
 from .agent.stateless_llm.openai_compatible_llm import ChatProviderError
@@ -576,7 +577,8 @@ class WebSocketHandler:
         if msg_type == "mic-audio-end":
             self.cohost_sessions[client_uid].instructor_speaking = False
         if msg_type == "text-input" and isinstance(data.get("text"), str):
-            if await self._try_input_motion(client_uid, data["text"], None):
+            if shortcut := motion_shortcut(data["text"]):
+                await self._play_cohost_motion(client_uid, shortcut)
                 return
         if self.cohost_sessions[client_uid].hold:
             if msg_type == "mic-audio-end":
@@ -584,9 +586,11 @@ class WebSocketHandler:
             await websocket.send_json({"type": "control", "text": "conversation-chain-end"})
             return
         if self._cohost_busy(client_uid):
-            if msg_type == "mic-audio-end":
-                self.received_data_buffers[client_uid] = np.array([], dtype=np.float32)
-            return
+            if msg_type != "mic-audio-end" or not self.received_data_buffers[client_uid].size:
+                return
+            # Keep a completed microphone turn even if playback never sent its interrupt.
+            await self._handle_interrupt(websocket, client_uid, {})
+            await websocket.send_json({"type": "interrupt-signal"})
         await handle_conversation_trigger(
             msg_type=data.get("type", ""),
             data=data,
@@ -599,7 +603,7 @@ class WebSocketHandler:
             received_data_buffers=self.received_data_buffers,
             current_conversation_tasks=self.current_conversation_tasks,
             broadcast_to_group=self.broadcast_to_group,
-            avatar_motion_handler=partial(self._try_input_motion, client_uid),
+            avatar_motion_handler=partial(self._play_cohost_motion, client_uid),
         )
 
     def _cohost_busy(self, client_uid: str) -> bool:
@@ -607,18 +611,6 @@ class WebSocketHandler:
         key = group.group_id if group and len(group.members) > 1 else client_uid
         task = self.current_conversation_tasks.get(key)
         return bool(task and not task.done())
-
-    async def _try_input_motion(self, client_uid: str, text: str, action: str | None) -> bool:
-        if action is None:
-            action = self.cohost_sessions[client_uid].match_motion(text)
-            if action is None:
-                return False
-            await self._play_cohost_motion(client_uid, action)
-        elif action in AVATAR_MOTIONS:
-            await self._play_cohost_motion(client_uid, action, learned_phrase=text)
-        else:
-            return False
-        return True
 
     async def _play_cohost_motion(
         self, client_uid: str, action: str, learned_phrase: str | None = None

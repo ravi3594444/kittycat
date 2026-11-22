@@ -22,7 +22,7 @@ from ..service_context import ServiceContext
 from ..cohost import available_motions
 
 # Import necessary types from agent outputs
-from ..agent.output_types import SentenceOutput, AudioOutput
+from ..agent.output_types import SentenceOutput, AudioOutput, DisplayText
 from ..agent.stateless_llm.openai_compatible_llm import ChatProviderError
 
 
@@ -67,12 +67,6 @@ async def process_single_conversation(
         if not input_text.strip() and not images:
             await send_conversation_end_signal(websocket_send, None)
             return ""
-
-        if avatar_motion_handler and isinstance(user_input, np.ndarray):
-            if await avatar_motion_handler(input_text, None):
-                await websocket_send(json.dumps({"type": "full-text", "text": " "}))
-                await send_conversation_end_signal(websocket_send, None)
-                return ""
 
         if avatar_motion_handler and context.live2d_model and not (metadata or {}).get("proactive_speak"):
             metadata = {
@@ -143,8 +137,23 @@ async def process_single_conversation(
                     and output_item.get("type") == "cohost-avatar-motion"
                     and isinstance(output_item.get("motion"), str)
                 ):
-                    if await avatar_motion_handler(input_text, output_item["motion"]):
-                        await websocket_send(json.dumps({"type": "full-text", "text": " "}))
+                    result = await avatar_motion_handler(output_item["motion"])
+                    if result == "animated":
+                        reply = output_item["acknowledgment"]
+                    elif result == "cooldown":
+                        reply = "Give me a second before the next move."
+                    else:
+                        reply = "I can't do that move right now."
+                    character = context.character_config
+                    await tts_manager.speak(
+                        reply,
+                        DisplayText(reply, character.character_name, character.avatar),
+                        None,
+                        context.live2d_model,
+                        context.tts_engine,
+                        websocket_send,
+                    )
+                    full_response += reply
                 else:
                     logger.warning(
                         f"Received unexpected item type from agent chat stream: {type(output_item)}"

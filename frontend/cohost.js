@@ -193,6 +193,12 @@
     tryPlay();
   }
 
+  function stopMotion() {
+    clearTimeout(motionTimer);
+    pendingMotion = null;
+    pawsRig?.play("idle");
+  }
+
   function reviewButton(label, action, id) {
     const button = document.createElement("button");
     button.type = "button";
@@ -257,6 +263,8 @@
       }
       clientId = message.client_uid ?? clientId;
       pendingMotion = null;
+    } else if (message.type === "control" && message.text === "conversation-chain-start") {
+      stopMotion();
     } else if (message.type === "avatar-motion") {
       if (Array.isArray(message.learned_command) && message.learned_command.length === 2 &&
           message.learned_command.every(part => typeof part === "string")) {
@@ -389,6 +397,7 @@
     });
   });
   window.addEventListener("cohost:floor", event => {
+    if (event.detail) stopMotion();
     control("floor", { speaking: event.detail });
   });
 })();
