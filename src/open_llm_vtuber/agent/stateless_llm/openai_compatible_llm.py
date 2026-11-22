@@ -3,7 +3,7 @@ This class is responsible for handling asynchronous interaction with OpenAI API 
 endpoints for language generation.
 """
 
-from typing import AsyncIterator, List, Dict, Any
+from typing import AsyncIterator, List, Dict, Any, Literal
 from urllib.parse import urlsplit
 from openai import (
     AsyncStream,
@@ -84,6 +84,7 @@ class AsyncLLM(StatelessLLMInterface):
         messages: List[Dict[str, Any]],
         system: str = None,
         tools: List[Dict[str, Any]] | NotGiven = NOT_GIVEN,
+        tool_choice: Literal["auto", "none", "required"] | NotGiven = NOT_GIVEN,
     ) -> AsyncIterator[str | List[ChoiceDeltaToolCall]]:
         """
         Generates a chat completion using the OpenAI API asynchronously.
@@ -130,6 +131,7 @@ class AsyncLLM(StatelessLLMInterface):
                 stream=True,
                 temperature=self.temperature,
                 tools=available_tools,
+                tool_choice=tool_choice if self.support_tools else NOT_GIVEN,
                 extra_body=self._realtime_options,
             )
             logger.debug(

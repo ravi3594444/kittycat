@@ -39,13 +39,60 @@ Open **Co-host controls**.
 
 - Enter `!wave`, `!dance`, `!meow`, or `!nod` under **Test a viewer comment** to try a shortcut. PawsRig also supports `!jump`, `!spin`, `!clap`, `!heart`, and `!pet`. Animations have a short cooldown between commands. `!meow` is a silent facial animation.
 - Mercury can choose an animation for a clear request like `Hey Kitty, ek baar kood ke dikhao`, including messages in a viewer's own language. It can do this for viewer comments, main chat, and transcribed microphone turns in a single-avatar session. Kittycat saves the phrases that triggered an animation in the operator's browser and restores them after refresh. Select **Forget learned commands** to clear them.
-- Save lesson notes. Little Cat tilts its head when a comment enters review. Greetings, thanks, and confirmations get a short acknowledgment you can edit. Viewer questions appear for review after filtering and deduplication. Select **Draft** to generate a short answer from the notes, edit the draft as needed, then select **Approve and speak**. The browser displays the caption and moves the cat's mouth during audio playback. The caption remains available if synthesis fails.
-- **Suggest transition** queues a proactive prompt. A viewer's `!lesson` comment queues a read-only lookup of the current lesson notes. The operator approves the spoken result. The viewer draft path has no external tool access.
+- Save lesson notes. Little Cat tilts its head when a comment enters review. Greetings, thanks, and confirmations get a short acknowledgment you can edit. Viewer questions appear for review after filtering and deduplication. Select **Draft**, edit the draft as needed, then select **Approve and speak**. The browser displays the caption and moves the cat's mouth during audio playback. The caption remains available if synthesis fails.
+- **Suggest transition** queues a proactive prompt. A viewer's `!lesson` comment queues a read-only lookup of the current lesson notes. The operator approves the spoken result.
 - **Mute and hold** interrupts playback and pauses new spoken turns. A live mic interruption also yields the floor. The session panel shows comment, motion, approval, caption fallback, and response timing counts.
 
 Each browser session has its own review queue, lesson notes, and counters. They reset when the session disconnects. Configured `COHOST_BLOCKED_TERMS` can contain a comma-separated list of phrases to match in viewer comments. The filter is a keyword check. The operator reviews drafts before approving them.
 
+### Stream memory and company knowledge
+
+When you approve a viewer answer, Kitty retains up to six approved question-and-answer pairs for 20 minutes in that session. **Draft** can use these to answer follow-ups. Select **Clear live memory** when starting a different topic or Live.
+
+Mercury can call a read-only lookup when drafting an answer. Matching records appear under the draft. Publish only details you are comfortable saying publicly on TikTok. Choose a knowledge source in the server environment. Notion and CRM refresh at most once per minute.
+
+- **Notion** uses `COHOST_KNOWLEDGE_PROVIDER=notion`, `COHOST_NOTION_DATA_SOURCE_ID`, and `COHOST_NOTION_TOKEN`. Give the integration read access to a dedicated data source. Add these properties. Use **Name** for the title, **Answer** for rich text, **Public** for a checkbox, and **Kind** for a select with **Company** and **Memory** options. **Keywords** (multi-select) and **Source** (URL) are optional. Kitty reads rows with **Public** checked. [Notion data source documentation](https://developers.notion.com/reference/query-a-data-source)
+- **CRM** uses `COHOST_KNOWLEDGE_PROVIDER=crm` and `COHOST_CRM_KNOWLEDGE_URL`. Point it at an HTTPS GET endpoint that returns the approved records in the JSON format below. Set `COHOST_CRM_API_TOKEN` if the feed requires bearer authentication.
+- **Local file** uses `knowledge_base/kittycat-public.json` by default. Set `COHOST_KNOWLEDGE_FILE` to use another server-side path. Git ignores the default location. Kitty picks up saved edits on the next draft.
+
+Use `company` for current public facts and `memory` for details to carry into future Lives.
+
+```json
+{
+  "company": [
+    {
+      "title": "Product shipping",
+      "text": "Replace with your published shipping policy.",
+      "source": "Your public shipping FAQ",
+      "keywords": ["delivery", "shipping"]
+    }
+  ],
+  "memory": [
+    {
+      "title": "Project from the previous Live",
+      "text": "Replace with a detail you want Kitty to carry into future Lives.",
+      "source": "Host recap",
+      "keywords": ["project", "previous live"]
+    }
+  ]
+}
+```
+
 ## Connect live comments
+
+Open `/live` for a portrait window with just Kittycat. Click the Kittycat window once to enable audio, then capture that window in TikTok LIVE Studio. Press **Alt+C** to open the co-host controls in a separate window. Use `/live?controls=1` if pop-ups are unavailable. Close any extra Kittycat tabs to keep one relay destination.
+
+For TikTok, the included relay uses the unofficial open-source Python **TikTokLive** project. It reads public chat from the creator's LIVE and sends those comments to Kittycat. Clear movement requests can animate automatically. Viewer answer drafts still go through **Approve and speak**. [TikTokLive source](https://github.com/isaackogan/TikTokLive)
+
+On the VM, use the relay token that Kittycat already has in its environment and your TikTok creator handle. If Kittycat uses a different port, pass its comment endpoint with `--url`.
+
+```sh
+cd ~/kittycat-next
+read -rsp 'Kittycat relay token: ' COHOST_COMMENT_TOKEN
+printf '\n'
+export COHOST_COMMENT_TOKEN
+uv run --script scripts/tiktok_live_relay.py @yourhandle
+```
 
 Set `COHOST_COMMENT_TOKEN` on the server. A trusted relay for an authorized live platform can then POST to `/api/cohost/comments`. The single connected operator session is selected automatically. If there are multiple sessions, include the destination `client_uid` from its WebSocket init message. The session ID is also available by hovering over the counters in Co-host controls.
 

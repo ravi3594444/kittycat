@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 
 from .routes import init_client_ws_route, init_webtool_routes, init_proxy_route
@@ -142,6 +142,10 @@ class WebSocketServer:
             CORSStaticFiles(directory="web_tool", html=True),
             name="web_tool",
         )
+
+        @self.app.get("/live", include_in_schema=False)
+        async def kittycat_live():
+            return FileResponse("frontend/index.html")
 
         # Mount main frontend last (as catch-all)
         self.app.mount(

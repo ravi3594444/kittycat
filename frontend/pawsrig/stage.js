@@ -2916,7 +2916,7 @@ var appearance = {
   showFx: true,
   showActionLabel: false
 };
-function mountPawsRig() {
+function mountPawsRig(target) {
   const engine = new CatAnimationEngine();
   const stage = document.createElement("div");
   stage.className = "pawsrig-stage";
@@ -2957,7 +2957,7 @@ function mountPawsRig() {
     frameId = requestAnimationFrame(frame);
     const elapsed = (now - lastFrame) / 1e3;
     lastFrame = now;
-    if (!legacyCanvas?.isConnected) {
+    if (!target && !legacyCanvas?.isConnected) {
       detach();
       const previous = document.querySelector("#live2d-internal-wrapper > #canvas");
       if (!previous?.parentElement) return;
@@ -2983,12 +2983,16 @@ function mountPawsRig() {
       isOverlay: false,
       actionLabel: ANIMATION_BY_ID[action].label
     })) {
-      if (!legacyCanvas.classList.contains("pawsrig-fallback")) {
+      if (legacyCanvas && !legacyCanvas.classList.contains("pawsrig-fallback")) {
         legacyCanvas.classList.add("pawsrig-fallback");
       }
       stage.dataset.action = action;
       stage.dataset.speaking = String(pose.isSpeaking);
     }
+  }
+  if (target) {
+    target.append(stage);
+    observer.observe(stage);
   }
   frameId = requestAnimationFrame(frame);
   return {

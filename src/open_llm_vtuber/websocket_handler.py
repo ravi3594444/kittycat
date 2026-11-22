@@ -7,6 +7,7 @@ from functools import partial
 from time import monotonic
 from urllib.parse import urlsplit
 from enum import Enum
+import httpx
 import numpy as np
 from loguru import logger
 
@@ -26,6 +27,7 @@ from .cohost import (
 )
 from .agent.output_types import DisplayText
 from .agent.stateless_llm.openai_compatible_llm import ChatProviderError
+from .cohost_knowledge import PublicKnowledge, PublicKnowledgeStore
 from .conversations.conversation_utils import (
     finalize_conversation_turn,
     send_conversation_start_signals,
@@ -96,6 +98,7 @@ class WebSocketHandler:
         self.cohost_sessions: dict[str, CohostSession] = {}
         self.cohost_drafts: dict[str, asyncio.Task] = {}
         self.cohost_motion_tasks: dict[str, asyncio.Task] = {}
+        self.cohost_knowledge = PublicKnowledgeStore()
         self.blocked_terms = tuple(
             term.strip().casefold()
             for term in os.getenv("COHOST_BLOCKED_TERMS", "").split(",")
@@ -709,6 +712,9 @@ class WebSocketHandler:
             self.client_contexts[client_uid].pcm_audio_ready = data.get("enabled") is True
         elif action == "restore-motion-memory":
             session.restore_motion_memory(data.get("commands"))
+        elif action == "reset-live-memory":
+            session.live_replies.clear()
+            status = "Memory for this Live cleared."
         elif action == "lesson" and isinstance(data.get("lesson"), str):
             session.lesson = data["lesson"].strip()[:4000]
             status = "Lesson context saved for this session."
@@ -763,25 +769,40 @@ class WebSocketHandler:
                 else:
                     session.items.pop(item.id)
                     session.metrics["approved"] += 1
+                    answer = answer.strip()
+                    if item.kind == "question":
+                        session.live_replies.append((monotonic(), item.text, answer))
                     self.current_conversation_tasks[client_uid] = asyncio.create_task(
-                        self._speak_cohost(websocket, client_uid, session, item, answer.strip())
+                        self._speak_cohost(websocket, client_uid, session, item, answer)
                     )
         await websocket.send_json(session.status(status))
 
     async def _draft_cohost(self, websocket, client_uid, session, item):
+        knowledge_unavailable = False
         try:
             if item.kind == "lesson":
                 item.answer = item.lesson[:450] or "The instructor hasn't added lesson notes yet."
             elif item.kind != "acknowledgment":
                 agent = self.client_contexts[client_uid].agent_engine
-                draft = await asyncio.wait_for(
-                    agent.draft_cohost(item.text, item.lesson, item.viewer_name), 25
+                live_replies = session.recent_approved_replies()
+                try:
+                    knowledge = await self.cohost_knowledge.load()
+                except (OSError, ValueError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+                    logger.warning("Could not load approved co-host knowledge ({})", type(exc).__name__)
+                    knowledge = PublicKnowledge()
+                    knowledge_unavailable = True
+                draft, sources = await asyncio.wait_for(
+                    agent.draft_cohost(item.text, item.lesson, item.viewer_name, live_replies, knowledge), 25
                 )
                 if not draft or draft.startswith("Error calling the chat endpoint"):
                     raise ValueError("Empty reply")
                 item.answer = draft
+                item.sources = sources
             session.metrics["drafts"] += 1
-            status = "Review the draft before speaking."
+            status = (
+                "Company records unavailable. Review the draft before speaking."
+                if knowledge_unavailable else "Review the draft before speaking."
+            )
         except ChatProviderError as exc:
             session.metrics["draft_errors"] += 1
             status = f"{exc} You can type a reply."

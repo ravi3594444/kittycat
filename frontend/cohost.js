@@ -1,5 +1,14 @@
 /* Operator controls for the backend's co-host session. */
 (() => {
+  const liveMode = location.pathname === "/live";
+  const liveStage = liveMode ? document.createElement("main") : undefined;
+  if (liveStage) {
+    document.title = "Kittycat Live";
+    document.documentElement.classList.add("kittycat-live");
+    liveStage.className = "kittycat-live-stage";
+    document.body.prepend(liveStage);
+  }
+
   const panel = document.createElement("details");
   panel.className = "cohost-panel";
   panel.innerHTML = `
@@ -11,6 +20,7 @@
         <button type="button" data-control="suggest">Suggest transition</button>
         <button type="button" data-control="voice-demo" hidden>Play voice demo</button>
         <button type="button" data-control="forget-motions" hidden>Forget learned commands</button>
+        <button type="button" data-control="reset-live-memory" hidden>Clear live memory</button>
       </div>
       <div class="cohost-voice-samples" hidden>
         <label for="cohost-voice-sample">Voice emotion</label>
@@ -28,6 +38,35 @@
       <small class="cohost-metrics"></small>
     </section>`;
   document.body.append(panel);
+  if (liveMode) {
+    let controlsWindow;
+    panel.hidden = !new URLSearchParams(location.search).has("controls");
+    panel.open = !panel.hidden;
+    window.addEventListener("keydown", event => {
+      if (!event.altKey || event.code !== "KeyC" || event.repeat) return;
+      event.preventDefault();
+      if (controlsWindow && !controlsWindow.closed) {
+        controlsWindow.focus();
+        return;
+      }
+      controlsWindow = window.open("", "kittycat-controls", "popup,width=430,height=630");
+      if (controlsWindow) {
+        const controlsDocument = controlsWindow.document;
+        controlsDocument.title = "Kittycat controls";
+        const css = controlsDocument.createElement("link");
+        css.rel = "stylesheet";
+        css.href = new URL("./cohost.css", document.baseURI).href;
+        controlsDocument.head.append(css);
+        controlsDocument.body.classList.add("kittycat-controls-window");
+        controlsDocument.body.append(panel);
+      } else if (!panel.isConnected) {
+        document.body.append(panel);
+      }
+      panel.hidden = false;
+      panel.open = true;
+    });
+    window.addEventListener("pagehide", () => controlsWindow?.close());
+  }
 
   const status = panel.querySelector(".cohost-status");
   const lesson = panel.querySelector("[name=lesson]");
@@ -36,6 +75,7 @@
   const holdButton = panel.querySelector("[data-control=hold]");
   const demoButton = panel.querySelector("[data-control=voice-demo]");
   const forgetButton = panel.querySelector("[data-control=forget-motions]");
+  const clearLiveMemoryButton = panel.querySelector("[data-control=reset-live-memory]");
   const samplePanel = panel.querySelector(".cohost-voice-samples");
   const sampleSelect = panel.querySelector("[name=voice_sample]");
   const sampleButton = panel.querySelector("[data-control=voice-sample]");
@@ -97,6 +137,7 @@
 
   function selectRenderer(renderer) {
     const enabled = renderer === "pawsrig";
+    if (liveMode) document.documentElement.dataset.liveRenderer = enabled ? "pawsrig" : "live2d";
     if (enabled === usePawsRig) return;
     usePawsRig = enabled;
     window.kittycatStreamAudio?.enable(enabled);
@@ -109,7 +150,7 @@
     pawsRigLoad ??= import("./pawsrig/stage.js");
     pawsRigLoad.then(({ mountPawsRig }) => {
       if (!usePawsRig || pawsRig) return;
-      pawsRig = mountPawsRig();
+      pawsRig = mountPawsRig(liveStage);
       if (latestSpeech) pawsRig.useSpeech(latestSpeech);
       if (streamAnalyser) pawsRig.useAnalyser(streamAnalyser);
     }).catch(() => {
@@ -181,6 +222,8 @@
         reply.placeholder = "Review or enter a reply";
         reply.setAttribute("aria-label", "Reply");
         reply.addEventListener("input", () => edits.set(item.id, reply.value));
+        const sources = document.createElement("p");
+        sources.className = "cohost-sources";
         const actions = document.createElement("div");
         actions.className = "cohost-row";
         if (item.kind !== "acknowledgment") {
@@ -190,11 +233,14 @@
           reviewButton("Approve and speak", "speak", item.id),
           reviewButton("Dismiss", "dismiss", item.id),
         );
-        card.append(question, reply, actions);
+        card.append(question, reply, sources, actions);
         list.append(card);
       }
       const reply = card.querySelector("textarea");
       if (!edits.has(item.id) && reply.value !== item.answer) reply.value = item.answer;
+      const sources = card.querySelector(".cohost-sources");
+      sources.hidden = !item.sources?.length;
+      sources.textContent = sources.hidden ? "" : `Records found · ${item.sources.join(" · ")}`;
       card.querySelector("[data-control=speak]").disabled = hold;
     }
   }
@@ -221,6 +267,7 @@
     } else if (message.type === "cohost-status") {
       if (message.hold && !hold) stopOutput?.();
       hold = message.hold;
+      clearLiveMemoryButton.hidden = !message.has_live_memory;
       demoButton.hidden = !message.voice_demo;
       demoButton.disabled = hold;
       if (message.voice_samples && !sampleSelect.options.length) {
@@ -335,6 +382,7 @@
       pendingMotion = null;
       demoButton.hidden = true;
       forgetButton.hidden = true;
+      clearLiveMemoryButton.hidden = true;
       samplePanel.hidden = true;
       hold = false;
       holdButton.textContent = "Mute and hold";

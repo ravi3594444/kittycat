@@ -40,3 +40,28 @@
   pointer-events: none;
 }
 .pawsrig-fallback { visibility: hidden; }
+
+.kittycat-live body {
+  margin: 0;
+  overflow: hidden;
+  background: #151223;
+}
+.kittycat-live #root { visibility: hidden; }
+.kittycat-live #root * { visibility: hidden !important; }
+.kittycat-live[data-live-renderer="live2d"] #live2d-internal-wrapper {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+.kittycat-live[data-live-renderer="live2d"] #live2d-internal-wrapper > canvas {
+  visibility: visible !important;
+}
+.kittycat-live-stage { position: fixed; inset: 0; }
+.kittycat-controls-window { margin: 12px; background: #1d2430; }
+.kittycat-controls-window .cohost-panel { position: static; width: 100%; max-width: none; }
+.kittycat-controls-window .cohost-panel section {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: none;
+}

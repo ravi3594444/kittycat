@@ -65,6 +65,8 @@ AVATAR_MOTIONS = ("wave", "dance", "meow", "nod", "jump", "spin", "clap", "heart
 MOTION_MEMORY_LIMIT = 64
 MOTION_QUEUE_LIMIT = 12
 MOTION_TIMEOUT_SECONDS = 4
+LIVE_MEMORY_LIMIT = 6
+LIVE_MEMORY_SECONDS = 20 * 60
 QUESTION_START = re.compile(
     r"^(what|why|how|when|where|who|which|can|could|should|does|do|is|are|explain|tell me)\b",
     re.IGNORECASE,
@@ -96,20 +98,28 @@ def motion_tool(motions: tuple[str, ...]) -> dict:
     }
 
 
-def motion_from_tool_calls(event: object, motions: tuple[str, ...]) -> str | None:
+def parse_cohost_tool_call(
+    event: object, name: str, field_name: str
+) -> tuple[ToolCallObject, str] | None:
     if not isinstance(event, list) or len(event) != 1 or not isinstance(event[0], ToolCallObject):
         return None
-    function = event[0].function
-    if function.name != "play_avatar_motion" or len(function.arguments) > 160:
+    call = event[0]
+    function = call.function
+    if function.name != name or len(function.arguments) > 2000:
         return None
     try:
         arguments = json.loads(function.arguments)
     except (ValueError, TypeError):
         return None
-    if not isinstance(arguments, dict) or set(arguments) != {"motion"}:
+    if not isinstance(arguments, dict) or set(arguments) != {field_name}:
         return None
-    action = arguments["motion"]
-    return action if isinstance(action, str) and action in motions else None
+    value = arguments[field_name]
+    return (call, value) if isinstance(value, str) else None
+
+
+def motion_from_tool_calls(event: object, motions: tuple[str, ...]) -> str | None:
+    parsed = parse_cohost_tool_call(event, "play_avatar_motion", "motion")
+    return parsed[1] if parsed and parsed[1] in motions else None
 
 
 def find_acknowledgment(text: str) -> tuple[str, tuple[str, ...]] | None:
@@ -137,6 +147,7 @@ class ReviewItem:
     answer: str = ""
     viewer_name: str | None = None
     added_at: float = field(default_factory=monotonic)
+    sources: tuple[str, ...] = ()
 
     def public(self) -> dict:
         return {
@@ -145,6 +156,7 @@ class ReviewItem:
             "text": self.text,
             "answer": self.answer,
             "viewer_name": self.viewer_name,
+            "sources": self.sources,
         }
 
 
@@ -158,6 +170,7 @@ class CohostSession:
         self.recent: OrderedDict[str, float] = OrderedDict()
         self.learned_motions: OrderedDict[str, str] = OrderedDict()
         self.pending_motion_comments: deque[tuple[ViewerComment, float]] = deque()
+        self.live_replies: deque[tuple[float, str, str]] = deque(maxlen=LIVE_MEMORY_LIMIT)
         self.metrics: Counter[str] = Counter()
         self.last_response_ms: int | None = None
 
@@ -170,6 +183,12 @@ class CohostSession:
         item = ReviewItem(uuid4().hex, kind, text, self.lesson, viewer_name=viewer_name)
         self.items[item.id] = item
         return item
+
+    def recent_approved_replies(self) -> list[dict[str, str]]:
+        cutoff = monotonic() - LIVE_MEMORY_SECONDS
+        while self.live_replies and self.live_replies[0][0] < cutoff:
+            self.live_replies.popleft()
+        return [{"question": question, "answer": answer} for _, question, answer in self.live_replies]
 
     def match_motion(self, text: str) -> str | None:
         shortcut = text.strip().casefold()
@@ -270,6 +289,7 @@ class CohostSession:
             "voice_demo": VOICE_DEMO_PATH.is_file(),
             "voice_samples": VOICE_SAMPLES,
             "review": [item.public() for item in self.items.values()],
+            "has_live_memory": bool(self.recent_approved_replies()),
             "metrics": dict(self.metrics),
             "last_response_ms": self.last_response_ms,
             "message": message,
