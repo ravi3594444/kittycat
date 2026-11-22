@@ -15,10 +15,11 @@ from .conversation_utils import (
     cleanup_conversation,
     EMOJI_LIST,
 )
-from .types import WebSocketSend
+from .types import AvatarMotionHandler, WebSocketSend
 from .tts_manager import TTSTaskManager
 from ..chat_history_manager import store_message
 from ..service_context import ServiceContext
+from ..cohost import available_motions
 
 # Import necessary types from agent outputs
 from ..agent.output_types import SentenceOutput, AudioOutput
@@ -33,6 +34,7 @@ async def process_single_conversation(
     images: Optional[List[Dict[str, Any]]] = None,
     session_emoji: str = np.random.choice(EMOJI_LIST),
     metadata: Optional[Dict[str, Any]] = None,
+    avatar_motion_handler: AvatarMotionHandler | None = None,
 ) -> str:
     """Process a single-user conversation turn
 
@@ -65,6 +67,18 @@ async def process_single_conversation(
         if not input_text.strip() and not images:
             await send_conversation_end_signal(websocket_send, None)
             return ""
+
+        if avatar_motion_handler and isinstance(user_input, np.ndarray):
+            if await avatar_motion_handler(input_text, None):
+                await websocket_send(json.dumps({"type": "full-text", "text": " "}))
+                await send_conversation_end_signal(websocket_send, None)
+                return ""
+
+        if avatar_motion_handler and context.live2d_model and not (metadata or {}).get("proactive_speak"):
+            metadata = {
+                **(metadata or {}),
+                "avatar_motions": available_motions(context.live2d_model.model_info),
+            }
 
         # Create batch input
         batch_input = create_batch_input(
@@ -123,6 +137,14 @@ async def process_single_conversation(
                         str(response_part) if response_part is not None else ""
                     )
                     full_response += response_part_str  # Accumulate text response
+                elif (
+                    avatar_motion_handler
+                    and isinstance(output_item, dict)
+                    and output_item.get("type") == "cohost-avatar-motion"
+                    and isinstance(output_item.get("motion"), str)
+                ):
+                    if await avatar_motion_handler(input_text, output_item["motion"]):
+                        await websocket_send(json.dumps({"type": "full-text", "text": " "}))
                 else:
                     logger.warning(
                         f"Received unexpected item type from agent chat stream: {type(output_item)}"

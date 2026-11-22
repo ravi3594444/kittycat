@@ -12,7 +12,7 @@ from ..service_context import ServiceContext
 from .group_conversation import process_group_conversation
 from .single_conversation import process_single_conversation
 from .conversation_utils import EMOJI_LIST
-from .types import GroupConversationState
+from .types import AvatarMotionHandler, GroupConversationState
 from prompts import prompt_loader
 
 
@@ -28,6 +28,7 @@ async def handle_conversation_trigger(
     received_data_buffers: Dict[str, np.ndarray],
     current_conversation_tasks: Dict[str, Optional[asyncio.Task]],
     broadcast_to_group: Callable,
+    avatar_motion_handler: AvatarMotionHandler | None = None,
 ) -> None:
     """Handle triggers that start a conversation"""
     metadata = None
@@ -105,6 +106,7 @@ async def handle_conversation_trigger(
                 images=images,
                 session_emoji=session_emoji,
                 metadata=metadata,
+                avatar_motion_handler=avatar_motion_handler,
             )
         )
 

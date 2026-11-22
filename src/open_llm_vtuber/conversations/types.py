@@ -6,6 +6,7 @@ from ..agent.output_types import Actions, DisplayText
 
 # Type definitions
 WebSocketSend = Callable[[str], Awaitable[None]]
+AvatarMotionHandler = Callable[[str, Optional[str]], Awaitable[bool]]
 BroadcastFunc = Callable[[List[str], dict, Optional[str]], Awaitable[None]]
 
 

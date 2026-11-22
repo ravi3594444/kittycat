@@ -3,6 +3,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 import asyncio
 import json
 import os
+from functools import partial
 from time import monotonic
 from urllib.parse import urlsplit
 from enum import Enum
@@ -11,15 +12,17 @@ from loguru import logger
 
 from .service_context import ServiceContext
 from .cohost import (
+    AVATAR_MOTIONS,
     CohostSession,
-    MOTION_COMMANDS,
+    MOTION_QUEUE_LIMIT,
+    MOTION_TIMEOUT_SECONDS,
     ViewerComment,
     VOICE_DEMO_PATH,
     VOICE_DEMO_TEXT,
     VOICE_SAMPLE_DIRECTORY,
     VOICE_SAMPLE_TEXT,
     VOICE_SAMPLES,
-    motion_command,
+    available_motions,
 )
 from .agent.output_types import DisplayText
 from .agent.stateless_llm.openai_compatible_llm import ChatProviderError
@@ -92,6 +95,7 @@ class WebSocketHandler:
         self.received_data_buffers: Dict[str, np.ndarray] = {}
         self.cohost_sessions: dict[str, CohostSession] = {}
         self.cohost_drafts: dict[str, asyncio.Task] = {}
+        self.cohost_motion_tasks: dict[str, asyncio.Task] = {}
         self.blocked_terms = tuple(
             term.strip().casefold()
             for term in os.getenv("COHOST_BLOCKED_TERMS", "").split(",")
@@ -342,6 +346,9 @@ class WebSocketHandler:
         draft = self.cohost_drafts.pop(client_uid, None)
         if draft:
             draft.cancel()
+        motion_task = self.cohost_motion_tasks.pop(client_uid, None)
+        if motion_task:
+            motion_task.cancel()
         self.received_data_buffers.pop(client_uid, None)
         if client_uid in self.current_conversation_tasks:
             task = self.current_conversation_tasks[client_uid]
@@ -363,6 +370,9 @@ class WebSocketHandler:
         self.received_data_buffers.pop(client_uid, None)
         self.chat_group_manager.client_group_map.pop(client_uid, None)
         self.cohost_sessions.pop(client_uid, None)
+        motion_task = self.cohost_motion_tasks.pop(client_uid, None)
+        if motion_task:
+            motion_task.cancel()
 
         if client_uid in self.current_conversation_tasks:
             task = self.current_conversation_tasks[client_uid]
@@ -563,8 +573,7 @@ class WebSocketHandler:
         if msg_type == "mic-audio-end":
             self.cohost_sessions[client_uid].instructor_speaking = False
         if msg_type == "text-input" and isinstance(data.get("text"), str):
-            if command := motion_command(data["text"]):
-                await self._play_cohost_motion(client_uid, command)
+            if await self._try_input_motion(client_uid, data["text"], None):
                 return
         if self.cohost_sessions[client_uid].hold:
             if msg_type == "mic-audio-end":
@@ -587,6 +596,7 @@ class WebSocketHandler:
             received_data_buffers=self.received_data_buffers,
             current_conversation_tasks=self.current_conversation_tasks,
             broadcast_to_group=self.broadcast_to_group,
+            avatar_motion_handler=partial(self._try_input_motion, client_uid),
         )
 
     def _cohost_busy(self, client_uid: str) -> bool:
@@ -595,9 +605,26 @@ class WebSocketHandler:
         task = self.current_conversation_tasks.get(key)
         return bool(task and not task.done())
 
-    async def _play_cohost_motion(self, client_uid: str, action: str) -> str:
+    async def _try_input_motion(self, client_uid: str, text: str, action: str | None) -> bool:
+        if action is None:
+            action = self.cohost_sessions[client_uid].match_motion(text)
+            if action is None:
+                return False
+            await self._play_cohost_motion(client_uid, action)
+        elif action in AVATAR_MOTIONS:
+            await self._play_cohost_motion(client_uid, action, learned_phrase=text)
+        else:
+            return False
+        return True
+
+    async def _play_cohost_motion(
+        self, client_uid: str, action: str, learned_phrase: str | None = None
+    ) -> str:
         session = self.cohost_sessions[client_uid]
-        model = self.client_contexts[client_uid].live2d_model.model_info
+        live2d = self.client_contexts[client_uid].live2d_model
+        if live2d is None:
+            return "unsupported"
+        model = live2d.model_info
         group = model.get("motionMap", {}).get(action)
         if not group:
             return "unsupported"
@@ -606,22 +633,64 @@ class WebSocketHandler:
             return "cooldown"
         session.last_motion = now
         session.metrics["motions"] += 1
-        await self.client_connections[client_uid].send_json(
-            {
-                "type": "avatar-motion",
-                "model": model["name"],
-                "modelPath": urlsplit(model["url"]).path.rsplit("/", 1)[0] + "/",
-                "group": group,
-                "action": action,
-            }
-        )
+        event = {
+            "type": "avatar-motion",
+            "model": model["name"],
+            "modelPath": urlsplit(model["url"]).path.rsplit("/", 1)[0] + "/",
+            "group": group,
+            "action": action,
+        }
+        if learned_phrase is not None and (phrase := session.remember_motion(learned_phrase, action)):
+            event["learned_command"] = [phrase, action]
+        await self.client_connections[client_uid].send_json(event)
         return "animated"
 
     async def receive_viewer_comment(self, client_uid: str, comment: ViewerComment) -> str:
         session = self.cohost_sessions[client_uid]
         result = session.ingest(comment, self.blocked_terms)
-        if result in MOTION_COMMANDS:
-            result = await self._play_cohost_motion(client_uid, result)
+        if result == "unclassified":
+            context = self.client_contexts[client_uid]
+            if (
+                getattr(context.agent_engine, "can_route_avatar_motion", False)
+                and context.live2d_model is not None
+                and available_motions(context.live2d_model.model_info)
+                and len(session.pending_motion_comments) < MOTION_QUEUE_LIMIT
+            ):
+                session.pending_motion_comments.append((comment, monotonic() + MOTION_TIMEOUT_SECONDS))
+                worker = self.cohost_motion_tasks.get(client_uid)
+                if not worker or worker.done():
+                    self.cohost_motion_tasks[client_uid] = asyncio.create_task(
+                        self._resolve_viewer_motions(client_uid, session)
+                    )
+                result = "checking"
+            else:
+                result = session.review_unclassified(comment)
+        return await self._present_viewer_result(client_uid, session, result)
+
+    async def _resolve_viewer_motions(self, client_uid: str, session: CohostSession) -> None:
+        while session.pending_motion_comments and self.cohost_sessions.get(client_uid) is session:
+            comment, deadline = session.pending_motion_comments.popleft()
+            context = self.client_contexts[client_uid]
+            motions = available_motions(context.live2d_model.model_info) if context.live2d_model else ()
+            time_left = deadline - monotonic()
+            action = None
+            if time_left > 0 and motions and getattr(context.agent_engine, "can_route_avatar_motion", False):
+                try:
+                    action = await asyncio.wait_for(
+                        context.agent_engine.classify_viewer_motion(comment.text, motions), timeout=time_left
+                    )
+                except Exception as exc:
+                    logger.warning("Motion classification failed ({})", type(exc).__name__)
+            if self.cohost_sessions.get(client_uid) is not session:
+                return
+            result = action if action in motions else session.review_unclassified(comment)
+            await self._present_viewer_result(client_uid, session, result, learned_phrase=comment.text)
+
+    async def _present_viewer_result(
+        self, client_uid: str, session: CohostSession, result: str, learned_phrase: str | None = None
+    ) -> str:
+        if result in AVATAR_MOTIONS:
+            result = await self._play_cohost_motion(client_uid, result, learned_phrase)
         elif result == "queued" and not session.hold and not self._cohost_busy(client_uid):
             await self._play_cohost_motion(client_uid, "listen")
         await self.client_connections[client_uid].send_json(session.status())
@@ -638,6 +707,8 @@ class WebSocketHandler:
         status = ""
         if action == "streaming-audio":
             self.client_contexts[client_uid].pcm_audio_ready = data.get("enabled") is True
+        elif action == "restore-motion-memory":
+            session.restore_motion_memory(data.get("commands"))
         elif action == "lesson" and isinstance(data.get("lesson"), str):
             session.lesson = data["lesson"].strip()[:4000]
             status = "Lesson context saved for this session."

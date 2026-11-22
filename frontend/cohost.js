@@ -10,6 +10,7 @@
         <button type="button" data-control="hold">Mute and hold</button>
         <button type="button" data-control="suggest">Suggest transition</button>
         <button type="button" data-control="voice-demo" hidden>Play voice demo</button>
+        <button type="button" data-control="forget-motions" hidden>Forget learned commands</button>
       </div>
       <div class="cohost-voice-samples" hidden>
         <label for="cohost-voice-sample">Voice emotion</label>
@@ -34,6 +35,7 @@
   const metrics = panel.querySelector(".cohost-metrics");
   const holdButton = panel.querySelector("[data-control=hold]");
   const demoButton = panel.querySelector("[data-control=voice-demo]");
+  const forgetButton = panel.querySelector("[data-control=forget-motions]");
   const samplePanel = panel.querySelector(".cohost-voice-samples");
   const sampleSelect = panel.querySelector("[name=voice_sample]");
   const sampleButton = panel.querySelector("[data-control=voice-sample]");
@@ -52,6 +54,22 @@
   let streamAnalyser;
   let pawsRigLoad;
   let announcedPCM;
+  let announcedMotionMemory = false;
+  const motionMemoryKey = "kittycat.learned-motions.v1";
+  let motionMemory = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(motionMemoryKey) || "[]");
+    if (Array.isArray(saved)) {
+      motionMemory = saved.filter(entry => Array.isArray(entry) && entry.length === 2 &&
+        entry.every(part => typeof part === "string")).slice(-64);
+    }
+  } catch { /* Learning still works for this session if storage is unavailable. */ }
+
+  function saveMotionMemory(entries) {
+    motionMemory = entries;
+    forgetButton.hidden = !entries.length;
+    try { localStorage.setItem(motionMemoryKey, JSON.stringify(entries)); } catch { /* Session only. */ }
+  }
 
   function send(message) {
     if (socket?.readyState !== WebSocket.OPEN) {
@@ -186,9 +204,19 @@
       modelName = message.model_info?.name;
       selectRenderer(message.model_info?.renderer);
       announcePCM();
+      if (!announcedMotionMemory) {
+        announcedMotionMemory = true;
+        forgetButton.hidden = !motionMemory.length;
+        if (motionMemory.length) control("restore-motion-memory", { commands: motionMemory });
+      }
       clientId = message.client_uid ?? clientId;
       pendingMotion = null;
     } else if (message.type === "avatar-motion") {
+      if (Array.isArray(message.learned_command) && message.learned_command.length === 2 &&
+          message.learned_command.every(part => typeof part === "string")) {
+        const [phrase] = message.learned_command;
+        saveMotionMemory([...motionMemory.filter(([known]) => known !== phrase), message.learned_command].slice(-64));
+      }
       playMotion(message);
     } else if (message.type === "cohost-status") {
       if (message.hold && !hold) stopOutput?.();
@@ -242,6 +270,11 @@
       control("speak", { id, answer: button.closest("article").querySelector("textarea").value });
     } else if (action === "voice-sample") {
       control(action, { sample: sampleSelect.value });
+    } else if (action === "forget-motions") {
+      if (control("restore-motion-memory", { commands: [] })) {
+        saveMotionMemory([]);
+        status.textContent = "Learned commands cleared.";
+      }
     } else {
       if (action === "draft") edits.delete(id);
       control(action, { id });
@@ -284,6 +317,7 @@
     window.kittycatStreamAudio?.stop();
     modelName = undefined;
     announcedPCM = undefined;
+    announcedMotionMemory = false;
     socket = event.detail.socket;
     stopOutput = event.detail.stopOutput;
     const active = socket;
@@ -300,6 +334,7 @@
       lesson.value = savedLesson = "";
       pendingMotion = null;
       demoButton.hidden = true;
+      forgetButton.hidden = true;
       samplePanel.hidden = true;
       hold = false;
       holdButton.textContent = "Mute and hold";
