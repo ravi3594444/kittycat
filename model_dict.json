@@ -56,7 +56,18 @@
         "initialYshift": 0,
         "kXOffset": 1150,
         "idleMotionGroupName": "Idle",
-        "emotionMap": {},
+        "emotionMap": {
+            "happy": "nod",
+            "excited": "explain",
+            "laugh": "laugh",
+            "surprised": "shock",
+            "confused": "listen",
+            "thinking": "listen",
+            "sad": "sad",
+            "angry": "angry",
+            "shy": "shy",
+            "neutral": "idle"
+        },
         "tapMotions": {},
         "motionMap": {
             "wave": "wave",
@@ -68,7 +79,25 @@
             "spin": "spin",
             "clap": "clap",
             "heart": "heart",
-            "pet": "pet"
+            "pet": "pet",
+            "cry": "sad",
+            "sad": "sad",
+            "laugh": "laugh",
+            "angry": "angry",
+            "shy": "shy",
+            "shock": "shock",
+            "backflip": "backflip",
+            "sing": "sing",
+            "sleep": "sleep",
+            "sit": "sit",
+            "stretch": "stretch",
+            "eat": "eat",
+            "zoomies": "zoomies",
+            "gaming": "gaming",
+            "groom": "groom",
+            "explain": "explain",
+            "walk_left": "walk_left",
+            "walk_right": "walk_right"
         }
     }
 ]

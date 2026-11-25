@@ -62,5 +62,9 @@ class ASRFactory:
             from .fish_audio_asr import VoiceRecognition
 
             return VoiceRecognition(**kwargs)
+        elif system_name == "assemblyai_asr":
+            from .assemblyai_asr import VoiceRecognition
+
+            return VoiceRecognition(**kwargs)
         else:
             raise ValueError(f"Unknown ASR system: {system_name}")

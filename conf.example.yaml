@@ -170,7 +170,14 @@ character_config:
 
   # === Automatic Speech Recognition ===
   asr_config:
-    asr_model: 'fish_audio_asr'
+    asr_model: 'assemblyai_asr'
+    assemblyai_asr:
+      api_key: '' # Prefer ASSEMBLYAI_API_KEY in the server environment.
+      speech_model: 'u3-rt-pro' # Realtime Universal-3 Pro; falls back to universal-streaming-english.
+      fallback_model: 'universal-streaming-english'
+      format_turns: True
+      ws_url: 'wss://streaming.assemblyai.com/v3/ws'
+
     fish_audio_asr:
       api_key: '' # Prefer FISH_AUDIO_API_KEY in the server environment.
       model: 'transcribe-1-pro'
@@ -355,7 +362,7 @@ character_config:
     fish_api_tts:
       api_key: '' # Prefer FISH_AUDIO_API_KEY in the server environment.
       reference_id: '9a9cf47702da476aa4629e2506d4a857' # Fish Official Hannah
-      latency: 'balanced' # Set to 'low' to audition Fish Audio's faster mode.
+      latency: 'low' # Faster time-to-first-audio for live voice replies.
       model: 's2.1-pro-free'
       style: 'little_cat' # Use 'neutral' for plain delivery.
       base_url: 'https://api.fish.audio'

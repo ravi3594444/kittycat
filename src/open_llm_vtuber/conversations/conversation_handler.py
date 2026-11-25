@@ -31,7 +31,7 @@ async def handle_conversation_trigger(
     avatar_motion_handler: AvatarMotionHandler | None = None,
 ) -> None:
     """Handle triggers that start a conversation"""
-    metadata = None
+    metadata = dict(data["metadata"]) if isinstance(data.get("metadata"), dict) else None
 
     if msg_type == "ai-speak-signal":
         try:

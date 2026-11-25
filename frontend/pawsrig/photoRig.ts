@@ -1835,9 +1835,13 @@ export function renderPhotoRigScene(
   ctx.rotate(pose.tailWag * 0.14 - pose.tailLift * 0.07);
   ctx.scale(tailPuff, tailPuff);
   ctx.translate(-tailPivotX, -tailPivotY);
-  if (coatFilter !== 'none') ctx.filter = coatFilter;
-  ctx.drawImage(assets.tailCanvas, 0, 0);
-  ctx.filter = 'none';
+  if (coatFilter !== 'none') {
+    ctx.filter = coatFilter;
+    ctx.drawImage(assets.tailCanvas, 0, 0);
+    ctx.filter = 'none';
+  } else {
+    ctx.drawImage(assets.tailCanvas, 0, 0);
+  }
   ctx.restore();
 
   // 3b. Oversized Pastel Hoodie Body (+ slight typing bounce during Gaming!)
@@ -1865,9 +1869,13 @@ export function renderPhotoRigScene(
   ctx.rotate(pose.headRot);
   ctx.translate(-headPivotX, -headPivotY);
 
-  if (coatFilter !== 'none') ctx.filter = coatFilter;
-  ctx.drawImage(assets.headCanvas, 0, 0);
-  ctx.filter = 'none';
+  if (coatFilter !== 'none') {
+    ctx.filter = coatFilter;
+    ctx.drawImage(assets.headCanvas, 0, 0);
+    ctx.filter = 'none';
+  } else {
+    ctx.drawImage(assets.headCanvas, 0, 0);
+  }
 
   drawPhotoMatchedEyes(ctx, pose, assets);
 

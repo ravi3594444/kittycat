@@ -11,7 +11,7 @@ uv run --no-project --python 3.12 --with-requirements requirements-cohost.txt py
 
 Open [http://localhost:12393](http://localhost:12393) in Chromium or Chrome. The browser may ask for microphone access. The avatar and test comment animations work before you add API keys.
 
-Set `FISH_AUDIO_API_KEY` in the server's environment for microphone transcription and speech. Set `COHOST_LLM_API_KEY` for the configured OpenAI-compatible chat provider. You can also set `FISH_AUDIO_VOICE_ID` and `FISH_AUDIO_TTS_MODEL` to select the voice and speech model. The included configuration uses Fish Audio's turn-based `transcribe-1-pro` ASR and `s2.1-pro-free` synthesis. The browser detects speech turns and the server transcribes each completed turn. Fish Audio accepts the key only on the server.
+Set `ASSEMBLYAI_API_KEY` for real-time Streaming v3 microphone transcription (`u3-rt-pro`, with automatic fallback to `universal-streaming-english`), `FISH_AUDIO_API_KEY` for speech synthesis (and optional `fish_audio_asr` fallback), and `COHOST_LLM_API_KEY` for the configured OpenAI-compatible chat provider. You can also set `ASSEMBLYAI_SPEECH_MODEL`, `FISH_AUDIO_VOICE_ID`, and `FISH_AUDIO_TTS_MODEL`. The included configuration pre-warms AssemblyAI's persistent v3 WebSocket as soon as speech begins and uses Fish Audio `s2.1-pro-free` (`latency: low`) for synthesis. Keys stay on the server only.
 
 With the default `unconfigured` chat key, you can type `hi` in the main chat to try a built-in greeting. General replies need a valid [Inception API key](https://docs.inceptionlabs.ai/get-started/authentication) when using the default `mercury-3` model. Set `COHOST_LLM_API_KEY` in the service's environment and restart the service. For a public preview with no login, keep the provider key in a privately accessible instance.
 
@@ -117,5 +117,16 @@ Keep the operator page on localhost or behind your private access layer. The rel
 The PawsRig canvas rig lives in `frontend/pawsrig/`. It reads the live audio spectrum to blend rounded and spread mouth shapes, keep consonant movements small, and close the mouth in pauses. WAV recordings use the volume and roundness estimates from the server. The eyelids meet briefly during a blink and reopen more slowly than they close.
 
 After editing the TypeScript rig, rebuild its browser module from the repository root with `npx --yes esbuild@0.25.12 frontend/pawsrig/stage.ts --bundle --format=esm --target=es2022 --outfile=frontend/pawsrig/stage.js`. The Python server serves this bundle directly.
+
+## Freedom Fusion AI LIVE Studio Layers
+
+The studio control plane layers on top of the co-host server without breaking manual review:
+
+- **iPhone / Mobile Control UI (`/control`)** — Open `http://localhost:12393/control` (or over your Cloudflare Tunnel / Tailscale URL) for one-tap **GO LIVE**, **Stop & Summarize**, **Restart**, **Quick Join TikTok**, personality switching (`Professor Whiskers`, `Comedian`, `Tech Expert`, `Co-Host`), host voice/text commands, 10-minute briefing → Topic Queue, Voice Notes, Knowledge Write-Back, and the Engagement Analytics + Clip Suggestions dashboard.
+- **Remote Studio REST API (`/api/studio/*`)** — Protected by `STUDIO_CONTROL_TOKEN` (falls back to `COHOST_COMMENT_TOKEN`; loopback allowed for local dev when unset). Endpoints: `/status`, `/go-live`, `/stop`, `/restart`, `/live-confirmed`, `/command`, `/settings`, `/topics`, `/briefing`, `/notes`, `/knowledge`, `/analytics`, `/obs`, `/notify`.
+- **Remote MCP Server (`scripts/studio_mcp_server.py`)** — Exposes all studio controls (`studio_go_live`, `studio_stop_live`, `studio_send_command`, `studio_obs_control`, `studio_notify_iphone`, `studio_ingest_briefing`, `studio_get_analytics`, etc.) via `stdio` or `--transport streamable-http --port 12399` for ChatGPT / Claude / Antigravity.
+- **Host Priority & Wake Phrase** — Set `COHOST_HOST_HANDLES=your_personal_handle` (and/or `COHOST_HOST_USER_IDS`) so commands dictated into TikTok chat (`Hey Whiskers, ...`, `!topic`, `!queue`, `!next`, `!mode`, `!auto on/off`, `!wake on/off`, `!note`, `!intro`, `!pause`, `!resume`, `!wrap`) override normal viewer questions immediately. Enable **Wake phrase** to gate live mic/guest audio on *"Hey Whiskers"*.
+- **Autonomous LIVE Mode, Returning Viewers & Gifts** — Enable **Auto-speak** for hands-free question selection, per-viewer anti-spam cooldowns, selective returning-viewer welcomes, and `GiftEvent` heart animations + thank-yous. All sessions, returning viewers, unanswered questions, clip scores, and summaries persist in SQLite (`data/studio.db`).
+- **Pushcut & OBS WebSocket v5** — Set `PUSHCUT_API_KEY` (plus optional `PUSHCUT_NOTIFICATION_NAME` or `PUSHCUT_WEBHOOK_URL`) and `TIKTOK_LIVE_HANDLE` for automatic iPhone alerts with one-tap TikTok join links. Enable OBS Tools → WebSocket Server (`OBS_WS_HOST`, `OBS_WS_PORT=4455`, `OBS_WS_PASSWORD`) for automated scene switching, virtual camera, and recording.
 
 Little Cat was created by Ezri. The model and its attribution terms are bundled under `live2d-models/little_cat/`.

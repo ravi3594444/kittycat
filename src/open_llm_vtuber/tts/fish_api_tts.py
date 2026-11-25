@@ -20,7 +20,7 @@ LEGACY_LITTLE_CAT_VOICE_IDS = frozenset({
 })
 LAUGH_START = re.compile(r"\s*ha[\s,-]*ha\b", re.IGNORECASE)
 PCM_SAMPLE_RATE = 24000
-PCM_CHUNK_BYTES = PCM_SAMPLE_RATE * 2 * 40 // 1000
+PCM_CHUNK_BYTES = PCM_SAMPLE_RATE * 2 * 100 // 1000
 
 
 class PCMUnsupportedError(RuntimeError):

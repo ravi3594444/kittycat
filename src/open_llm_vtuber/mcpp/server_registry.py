@@ -1,6 +1,7 @@
 """MCP Server Manager for Open-LLM-Vtuber."""
 
 import shutil
+import sys
 import json
 
 from pathlib import Path
@@ -60,7 +61,9 @@ class ServerRegistry:
                 continue
 
             command = server_details["command"]
-            if command == "npx":
+            if command in {"python", "python3"}:
+                command = sys.executable
+            elif command == "npx":
                 if not self.npx_available:
                     logger.warning(
                         f"MCPSR: npx is not available. Cannot load server '{server_name}'."

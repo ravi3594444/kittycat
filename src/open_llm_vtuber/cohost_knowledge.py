@@ -82,7 +82,11 @@ def load_public_knowledge() -> PublicKnowledge:
     except FileNotFoundError:
         if configured:
             raise
-        return PublicKnowledge()
+        example = Path("config_templates/kittycat-public.example.json")
+        if example.is_file():
+            contents = example.read_bytes()[: MAX_FILE_BYTES + 1]
+        else:
+            return PublicKnowledge()
     if len(contents) > MAX_FILE_BYTES:
         raise ValueError("The company knowledge file exceeds 1 MiB.")
     return PublicKnowledge.model_validate_json(contents)

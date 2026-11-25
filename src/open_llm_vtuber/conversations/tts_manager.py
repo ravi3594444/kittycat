@@ -133,7 +133,7 @@ class TTSTaskManager:
         try:
             if self.stream_pcm and isinstance(tts_engine, FishTTSEngine):
                 try:
-                    await self._stream_tts(utterance, tts_engine, tts_text, display_text)
+                    await self._stream_tts(utterance, tts_engine, tts_text, display_text, actions)
                     return
                 except PCMUnsupportedError:
                     logger.info("Fish Audio PCM is unavailable. Falling back to WAV.")
@@ -157,19 +157,27 @@ class TTSTaskManager:
                 logger.debug("Audio cache file cleaned.")
 
     async def _stream_tts(
-        self, utterance: Utterance, engine: FishTTSEngine, text: str, display: DisplayText
+        self,
+        utterance: Utterance,
+        engine: FishTTSEngine,
+        text: str,
+        display: DisplayText,
+        actions: Optional[Actions] = None,
     ) -> None:
         stream_id = uuid.uuid4().hex
         started = False
         try:
             async for chunk in engine.stream_pcm(text):
                 if not started:
-                    utterance.put_nowait({
+                    start_msg = {
                         "type": "audio-stream-start",
                         "stream_id": stream_id,
                         "sample_rate": PCM_SAMPLE_RATE,
                         "display_text": display.to_dict(),
-                    })
+                    }
+                    if actions:
+                        start_msg["actions"] = actions.to_dict()
+                    utterance.put_nowait(start_msg)
                     started = True
                 utterance.put_nowait({
                     "type": "audio-stream-chunk",

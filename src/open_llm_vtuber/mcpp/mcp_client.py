@@ -159,7 +159,13 @@ class MCPClient:
         logger.info(
             f"MCPC: Closing client instance and {len(self.active_sessions)} active connections..."
         )
-        await self.exit_stack.aclose()
+        try:
+            await self.exit_stack.aclose()
+        except RuntimeError as exc:
+            # AnyIO cancel scope entered in a different task (e.g., conversation task vs disconnect)
+            logger.debug(f"MCPC: Suppressed cross-task close error: {exc}")
+        except BaseExceptionGroup as exc:
+            logger.debug(f"MCPC: Suppressed task-group close error: {exc}")
         self.active_sessions.clear()
         self._list_tools_cache.clear()  # Clear cache on close
         self.exit_stack = AsyncExitStack()

@@ -171,8 +171,15 @@ character_config:
 
   # === 自动语音识别 ===
   asr_config:
-    # 语音转文本模型选项：'faster_whisper', 'whisper_cpp', 'whisper', 'azure_asr', 'fun_asr', 'groq_whisper_asr', 'sherpa_onnx_asr'
+    # 语音转文本模型选项：'assemblyai_asr', 'fish_audio_asr', 'faster_whisper', 'whisper_cpp', 'whisper', 'azure_asr', 'fun_asr', 'groq_whisper_asr', 'sherpa_onnx_asr'
     asr_model: 'sherpa_onnx_asr' # 使用的语音识别模型
+
+    assemblyai_asr:
+      api_key: ''
+      speech_model: 'u3-rt-pro'
+      fallback_model: 'universal-streaming-english'
+      format_turns: True
+      ws_url: 'wss://streaming.assemblyai.com/v3/ws'
 
     fish_audio_asr:
       api_key: ''

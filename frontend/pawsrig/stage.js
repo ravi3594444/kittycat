@@ -2851,9 +2851,13 @@ function renderPhotoRigScene(ctx, pose, appearance2, opts) {
   ctx.rotate(pose.tailWag * 0.14 - pose.tailLift * 0.07);
   ctx.scale(tailPuff, tailPuff);
   ctx.translate(-tailPivotX, -tailPivotY);
-  if (coatFilter !== "none") ctx.filter = coatFilter;
-  ctx.drawImage(assets.tailCanvas, 0, 0);
-  ctx.filter = "none";
+  if (coatFilter !== "none") {
+    ctx.filter = coatFilter;
+    ctx.drawImage(assets.tailCanvas, 0, 0);
+    ctx.filter = "none";
+  } else {
+    ctx.drawImage(assets.tailCanvas, 0, 0);
+  }
   ctx.restore();
   const gamingBounce = actionLabel === "Gaming" ? Math.sin(pose.fxTime * 24) * 3 : 0;
   ctx.save();
@@ -2869,9 +2873,13 @@ function renderPhotoRigScene(ctx, pose, appearance2, opts) {
   ctx.translate(headPivotX + pose.headX * 1.45, headPivotY + pose.headY * 1.45);
   ctx.rotate(pose.headRot);
   ctx.translate(-headPivotX, -headPivotY);
-  if (coatFilter !== "none") ctx.filter = coatFilter;
-  ctx.drawImage(assets.headCanvas, 0, 0);
-  ctx.filter = "none";
+  if (coatFilter !== "none") {
+    ctx.filter = coatFilter;
+    ctx.drawImage(assets.headCanvas, 0, 0);
+    ctx.filter = "none";
+  } else {
+    ctx.drawImage(assets.headCanvas, 0, 0);
+  }
   drawPhotoMatchedEyes(ctx, pose, assets);
   drawPhotoMatchedMouth(ctx, pose, assets);
   if (appearance2.accessory === "crown") {
@@ -3051,12 +3059,14 @@ function mountPawsRig(target) {
   let frameId = 0;
   let speech = null;
   let sampleLiveMouth = null;
+  let lastAction = "";
+  let lastSpeaking = "";
   const observer = new ResizeObserver(([{ contentRect }]) => {
     const scale = Math.min(contentRect.width / 536, contentRect.height / 960);
     width = Math.floor(536 * scale);
     height = Math.floor(960 * scale);
     if (!width || !height) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2, 960 / height);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5, 960 / height);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.width = Math.round(width * dpr);
@@ -3072,7 +3082,7 @@ function mountPawsRig(target) {
   }
   function frame(now) {
     frameId = requestAnimationFrame(frame);
-    const elapsed = (now - lastFrame) / 1e3;
+    const elapsed = Math.min(0.05, Math.max(0, (now - lastFrame) / 1e3));
     lastFrame = now;
     if (!target && !legacyCanvas?.isConnected) {
       detach();
@@ -3104,8 +3114,15 @@ function mountPawsRig(target) {
       if (legacyCanvas && !legacyCanvas.classList.contains("pawsrig-fallback")) {
         legacyCanvas.classList.add("pawsrig-fallback");
       }
-      stage.dataset.action = action;
-      stage.dataset.speaking = String(pose.isSpeaking);
+      if (action !== lastAction) {
+        lastAction = action;
+        stage.dataset.action = action;
+      }
+      const speakingStr = String(pose.isSpeaking);
+      if (speakingStr !== lastSpeaking) {
+        lastSpeaking = speakingStr;
+        stage.dataset.speaking = speakingStr;
+      }
     }
   }
   if (target) {
@@ -3116,6 +3133,9 @@ function mountPawsRig(target) {
   return {
     play(action) {
       return engine.trigger(action).accepted;
+    },
+    currentAction() {
+      return engine.getSnapshot().currentAction;
     },
     useSpeech(playback) {
       speech = playback;

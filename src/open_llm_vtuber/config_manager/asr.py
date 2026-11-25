@@ -190,6 +190,16 @@ class FishAudioASRConfig(I18nMixin):
     base_url: str = "https://api.fish.audio"
 
 
+class AssemblyAIASRConfig(I18nMixin):
+    """Configuration for AssemblyAI Streaming v3 speech recognition."""
+
+    api_key: str = ""
+    speech_model: str = "u3-rt-pro"
+    fallback_model: str = "universal-streaming-english"
+    format_turns: bool = True
+    ws_url: str = "wss://streaming.assemblyai.com/v3/ws"
+
+
 class SherpaOnnxASRConfig(I18nMixin):
     """Configuration for Sherpa Onnx ASR."""
 
@@ -328,6 +338,7 @@ class ASRConfig(I18nMixin):
         "groq_whisper_asr",
         "sherpa_onnx_asr",
         "fish_audio_asr",
+        "assemblyai_asr",
     ] = Field(..., alias="asr_model")
     azure_asr: Optional[AzureASRConfig] = Field(None, alias="azure_asr")
     faster_whisper: Optional[FasterWhisperConfig] = Field(None, alias="faster_whisper")
@@ -341,6 +352,7 @@ class ASRConfig(I18nMixin):
         None, alias="sherpa_onnx_asr"
     )
     fish_audio_asr: FishAudioASRConfig = Field(default_factory=FishAudioASRConfig)
+    assemblyai_asr: AssemblyAIASRConfig = Field(default_factory=AssemblyAIASRConfig)
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "asr_model": Description(

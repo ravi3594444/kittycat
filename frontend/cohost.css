@@ -58,6 +58,28 @@
   visibility: visible !important;
 }
 .kittycat-live-stage { position: fixed; inset: 0; }
+.kittycat-live-subtitles {
+  position: fixed;
+  left: 50%;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(92vw, 480px);
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(15, 16, 28, 0.82);
+  border: 1px solid rgba(158, 197, 255, 0.35);
+  color: #f4f7ff;
+  font: 600 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  text-align: center;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 900;
+  transition: opacity 0.25s ease;
+}
+.kittycat-live-subtitles[hidden] { display: none; }
+.kittycat-live-subtitles .speaker { color: #b9a4ff; margin-right: 6px; }
 .kittycat-controls-window { margin: 12px; background: #1d2430; }
 .kittycat-controls-window .cohost-panel { position: static; width: 100%; max-width: none; }
 .kittycat-controls-window .cohost-panel section {

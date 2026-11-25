@@ -14,11 +14,15 @@ class ToolAdapter:
     def __init__(self, server_registery: Optional[ServerRegistry] = None) -> None:
         """Initialize with an ServerRegistry."""
         self.server_registery = server_registery or ServerRegistry()
+        self._info_cache: Dict[tuple[str, ...], Tuple[Dict[str, Dict[str, str]], Dict[str, FormattedTool]]] = {}
 
     async def get_server_and_tool_info(
         self, enabled_servers: List[str]
     ) -> Tuple[Dict[str, Dict[str, str]], Dict[str, FormattedTool]]:
         """Fetch tool information from specified enabled MCP servers."""
+        cache_key = tuple(enabled_servers or ())
+        if cache_key in self._info_cache:
+            return self._info_cache[cache_key]
         servers_info: Dict[str, Dict[str, str]] = {}
         formatted_tools: Dict[str, FormattedTool] = {}
 
@@ -80,6 +84,8 @@ class ToolAdapter:
         logger.debug(
             f"MC: Finished fetching tool info. Found {len(formatted_tools)} tools across enabled servers."
         )
+        if formatted_tools:
+            self._info_cache[cache_key] = (servers_info, formatted_tools)
         return servers_info, formatted_tools
 
     def construct_mcp_prompt_string(

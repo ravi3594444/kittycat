@@ -17,6 +17,10 @@ conf.yaml.*
 !/characters/README.md
 !/characters/pawsrig.yaml
 !/characters/little_cat_classic.yaml
+!/characters/professor_whiskers.yaml
+!/characters/whiskers_comedian.yaml
+!/characters/whiskers_tech_expert.yaml
+!/characters/whiskers_cohost.yaml
 # but all of the defaults are already tracked, so no need to un-ignore them
 
 # ignore avatars
@@ -45,6 +49,7 @@ src/open_llm_vtuber/llm/user_credentials.json
 # Database files
 memory.db
 memory.db.bk
+data/studio.db*
 
 # Logs
 server.log

@@ -24,6 +24,7 @@ from ...cohost import (
     LITTLE_CAT_SPEECH_GUIDANCE,
     MOTION_TIMEOUT_SECONDS,
     find_acknowledgment,
+    looks_like_direct_motion_request,
     motion_from_tool_calls,
     motion_tool,
     parse_cohost_tool_call,
@@ -418,14 +419,42 @@ class BasicMemoryAgent(AgentInterface):
         self,
         initial_messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
+        motions: tuple[str, ...] = (),
+        request: str = "",
+        matched_motion: str = "",
     ) -> AsyncIterator[Union[str, Dict[str, Any]]]:
-        """Handle OpenAI interaction with tool support."""
+        """Handle OpenAI interaction with MCP tools and avatar motions."""
         messages = initial_messages.copy()
         current_turn_text = ""
         pending_tool_calls: Union[List[ToolCallObject], List[Dict[str, Any]]] = []
         current_system_prompt = self._system
+        mcp_guidance = (
+            "\nYou have live read-only tools for Rome's Notion workspace (pages and data sources) "
+            "and GoHighLevel CRM (courses, offers, pipelines, workflows, summary). When asked about "
+            "Freedom Fusion, Rome's Notion notes/data sources, upcoming workshops/lessons, or "
+            "GoHighLevel courses/offers, IMMEDIATELY invoke the matching tool in that same turn — "
+            "never say you will check without calling the tool. When welcoming new viewers or chatting "
+            "with someone curious about learning AI, automations, or networking, be warm and "
+            "encouraging and highlight relevant Freedom Fusion courses/offers. Skip CRM/Notion tools "
+            "for ordinary small talk or animation requests. Never reveal private emails, phone "
+            "numbers, or tokens on stream. Keep spoken answers concise (1-3 sentences)."
+        )
+        if matched_motion:
+            mcp_guidance += (
+                f" Your avatar is ALREADY visibly performing the '{matched_motion}' animation on "
+                "screen right now! React playfully in 1 short sentence as you do it — never say "
+                "you cannot perform it, and do not call play_avatar_motion again."
+            )
+        elif motions and self.can_route_avatar_motion:
+            tools = [*tools, motion_tool(motions, spoken=True)]
+            mcp_guidance += (
+                " Whenever the latest message asks Kitty to perform a physical move or emote "
+                "(such as wave, dance, cry/sad, laugh, jump, backflip, spin, clap, heart, meow, "
+                "nod, sing, sleep, sit, stretch, pet, zoomies), IMMEDIATELY call play_avatar_motion "
+                "with a short spoken acknowledgment. Treat earlier moves as finished."
+            )
 
-        while True:
+        for _round in range(3):
             if self.prompt_mode_flag:
                 if self._mcp_prompt_string:
                     current_system_prompt = (
@@ -435,12 +464,17 @@ class BasicMemoryAgent(AgentInterface):
                     logger.warning("Prompt mode active but mcp_prompt_string is empty!")
                     current_system_prompt = self._system
                 tools_for_api = None
+                tool_choice_arg = None
             else:
-                current_system_prompt = self._system
-                tools_for_api = tools
+                current_system_prompt = self._system + mcp_guidance
+                tools_for_api = tools if _round < 2 else None
+                tool_choice_arg = "none" if _round >= 2 else None
 
+            call_kwargs = {"tools": tools_for_api} if tools_for_api is not None else {}
+            if tool_choice_arg is not None and tools_for_api is not None:
+                call_kwargs["tool_choice"] = tool_choice_arg
             stream = self._llm.chat_completion(
-                messages, current_system_prompt, tools=tools_for_api
+                messages, current_system_prompt, **call_kwargs
             )
             pending_tool_calls.clear()
             current_turn_text = ""
@@ -554,6 +588,21 @@ class BasicMemoryAgent(AgentInterface):
                 continue
 
             elif pending_tool_calls and assistant_message_for_api:
+                if motions:
+                    motion_hit = motion_from_tool_calls(pending_tool_calls, motions, spoken=True)
+                    if isinstance(motion_hit, dict):
+                        if current_turn_text.strip():
+                            # Model already answered in text; don't emit a stale trailing motion.
+                            self._add_message(current_turn_text, "assistant")
+                            return
+                        ack = " ".join(motion_hit.get("acknowledgment", "").split())[:110].strip() or "Okay!"
+                        self._add_message(ack, "assistant")
+                        yield {
+                            "type": "cohost-avatar-motion",
+                            "motion": motion_hit["motion"],
+                            "acknowledgment": ack,
+                        }
+                        return
                 messages.append(assistant_message_for_api)
                 if current_turn_text:
                     self._add_message(current_turn_text, "assistant")
@@ -651,7 +700,7 @@ class BasicMemoryAgent(AgentInterface):
         return None
 
     async def _chat_tokens(self, messages: list[dict], motions: tuple[str, ...], request: str):
-        proposed_motion = None
+        proposed = None
         if request and motions and self.can_route_avatar_motion:
             system = (
                 self._system + "\nCall play_avatar_motion once only for an explicit request in "
@@ -659,14 +708,16 @@ class BasicMemoryAgent(AgentInterface):
                 "For other messages, respond to the latest message normally."
             )
             has_text = False
-            async with aclosing(self._llm.chat_completion(messages, system, tools=[motion_tool(motions)])) as stream:
+            async with aclosing(
+                self._llm.chat_completion(messages, system, tools=[motion_tool(motions, spoken=True)])
+            ) as stream:
                 async for event in stream:
                     if event == "__API_NOT_SUPPORT_TOOLS__":
                         break
                     if isinstance(event, list):
                         if has_text:
                             continue
-                        proposed_motion = motion_from_tool_calls(event, motions)
+                        proposed = motion_from_tool_calls(event, motions, spoken=True)
                         break
                     if isinstance(event, str) and event.strip():
                         has_text = True
@@ -675,17 +726,20 @@ class BasicMemoryAgent(AgentInterface):
                     return
 
         system = self._system
-        if proposed_motion:
-            # Recheck the newest words alone before allowing chat history to trigger a move.
-            try:
-                confirmed = await asyncio.wait_for(
-                    self._classify_motion(request, motions, spoken=True),
-                    timeout=MOTION_TIMEOUT_SECONDS,
-                )
-            except (ChatProviderError, asyncio.TimeoutError):
-                confirmed = None
+        if isinstance(proposed, dict):
+            proposed_motion = proposed["motion"]
+            confirmed = proposed if looks_like_direct_motion_request(request) else None
+            if confirmed is None:
+                # Recheck ambiguous/negated/question phrasing against the newest words alone.
+                try:
+                    confirmed = await asyncio.wait_for(
+                        self._classify_motion(request, motions, spoken=True),
+                        timeout=MOTION_TIMEOUT_SECONDS,
+                    )
+                except (ChatProviderError, asyncio.TimeoutError):
+                    confirmed = None
             if confirmed and confirmed["motion"] == proposed_motion:
-                acknowledgment = " ".join(confirmed["acknowledgment"].split())[:110].strip()
+                acknowledgment = " ".join(confirmed.get("acknowledgment", "").split())[:110].strip()
                 if not any(char.isalnum() for char in acknowledgment):
                     acknowledgment = "Okay!"
                 yield {
@@ -768,8 +822,15 @@ class BasicMemoryAgent(AgentInterface):
                 logger.debug(
                     f"Starting OpenAI tool interaction loop with {len(tools)} tools."
                 )
+                motions = (input_data.metadata or {}).get("avatar_motions", ())
+                matched_motion = (input_data.metadata or {}).get("matched_motion", "")
+                request = next((text.content for text in input_data.texts if text.source == TextSource.INPUT), "")
                 async for output in self._openai_tool_interaction_loop(
-                    messages, tools if tools else []
+                    messages,
+                    tools if tools else [],
+                    motions=motions,
+                    request=request,
+                    matched_motion=matched_motion,
                 ):
                     yield output
                 return

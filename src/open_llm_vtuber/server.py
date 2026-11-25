@@ -18,6 +18,10 @@ from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 
 from .routes import init_client_ws_route, init_webtool_routes, init_proxy_route
 from .service_context import ServiceContext
+from .studio_controller import StudioController
+from .studio_routes import init_studio_routes
+from .studio_store import StudioStore
+from .websocket_handler import WebSocketHandler
 from .config_manager.utils import Config
 
 
@@ -90,10 +94,27 @@ class WebSocketServer:
             allow_headers=["*"],
         )
 
-        # Include routes, passing the context instance
-        # The context will be populated during the initialize step
+        # Shared Studio Store, WebSocketHandler, and Remote LIVE Studio Controller
+        self.studio_store = StudioStore()
+        self.ws_handler = WebSocketHandler(
+            default_context_cache=self.default_context_cache,
+            studio_store=self.studio_store,
+        )
+        self.studio_controller = StudioController(
+            store=self.studio_store,
+            ws_handler=self.ws_handler,
+        )
+        self.ws_handler.studio_controller = self.studio_controller
+
+        # Include routes, passing the shared handlers
         self.app.include_router(
-            init_client_ws_route(default_context_cache=self.default_context_cache),
+            init_client_ws_route(
+                default_context_cache=self.default_context_cache,
+                ws_handler=self.ws_handler,
+            ),
+        )
+        self.app.include_router(
+            init_studio_routes(self.studio_controller),
         )
         self.app.include_router(
             init_webtool_routes(default_context_cache=self.default_context_cache),
@@ -146,6 +167,10 @@ class WebSocketServer:
         @self.app.get("/live", include_in_schema=False)
         async def kittycat_live():
             return FileResponse("frontend/index.html")
+
+        @self.app.get("/control", include_in_schema=False)
+        async def studio_control():
+            return FileResponse("frontend/control.html")
 
         # Mount main frontend last (as catch-all)
         self.app.mount(

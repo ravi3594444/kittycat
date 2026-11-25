@@ -62,7 +62,7 @@ class AsyncLLM(StatelessLLMInterface):
         self.temperature = temperature
         self.unconfigured = llm_api_key == "unconfigured"
         self._realtime_options = (
-            {"reasoning_effort": "low", "realtime": True}
+            {"reasoning_effort": "instant", "realtime": True}
             if model == "mercury-3"
             and urlsplit(base_url or "").hostname == "api.inceptionlabs.ai"
             else None

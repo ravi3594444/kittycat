@@ -14,19 +14,23 @@ from .websocket_handler import WebSocketHandler
 from .cohost import ViewerComment
 
 
-def init_client_ws_route(default_context_cache: ServiceContext) -> APIRouter:
+def init_client_ws_route(
+    default_context_cache: ServiceContext,
+    ws_handler: WebSocketHandler | None = None,
+) -> APIRouter:
     """
     Create and return API routes for handling the `/client-ws` WebSocket connections.
 
     Args:
         default_context_cache: Default service context cache for new sessions.
+        ws_handler: Optional shared WebSocketHandler instance.
 
     Returns:
         APIRouter: Configured router with WebSocket endpoint.
     """
 
     router = APIRouter()
-    ws_handler = WebSocketHandler(default_context_cache)
+    ws_handler = ws_handler or WebSocketHandler(default_context_cache)
 
     @router.post("/api/cohost/comments", status_code=202)
     async def receive_comment(

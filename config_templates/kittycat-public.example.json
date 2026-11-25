@@ -1,0 +1,48 @@
+{
+  "company": [
+    {
+      "title": "Freedom Fusion AI LIVE Studio",
+      "text": "Freedom Fusion AI LIVE Studio pairs a live human host with Professor Whiskers, an animated AI co-host covering CompTIA Network+, cybersecurity, and practical AI automation live on TikTok.",
+      "source": "Freedom Fusion System",
+      "keywords": ["freedom fusion", "whiskers", "live", "studio", "tiktok", "ai cat"]
+    },
+    {
+      "title": "Public Wi-Fi Security",
+      "text": "Public Wi-Fi is convenient, but open networks expose unencrypted traffic and risk evil-twin rogue access points. Always verify HTTPS, turn off auto-join, and route sensitive sessions through a trusted VPN.",
+      "source": "CompTIA Network+ N10-009 Domain 4",
+      "keywords": ["public wifi", "wi-fi", "wifi", "evil twin", "rogue ap", "security", "https"]
+    },
+    {
+      "title": "How VPNs Protect You",
+      "text": "A VPN creates an encrypted tunnel between your device and a VPN server using protocols like WireGuard or IPsec, hiding your traffic from local Wi-Fi eavesdroppers and masking your IP address from destination sites.",
+      "source": "CompTIA Network+ N10-009 Domain 4",
+      "keywords": ["vpn", "wireguard", "ipsec", "tunnel", "encryption", "privacy"]
+    },
+    {
+      "title": "Cellular Handoffs in Dense Cities",
+      "text": "As you walk through Manhattan, your phone continuously reports signal strength to nearby 5G and LTE base stations so the network executes fast handoffs between cell towers and small cells without dropping your LIVE stream.",
+      "source": "CompTIA Network+ N10-009 Domain 2",
+      "keywords": ["cellular", "handoff", "5g", "lte", "cell tower", "manhattan", "mobile"]
+    },
+    {
+      "title": "OSI Model Quick Breakdown",
+      "text": "The OSI model stacks seven layers from Physical hardware up to Application software—remembering Please Do Not Throw Sausage Pizza Away helps pinpoint whether an outage is cabling at Layer 1, switching at Layer 2, routing at Layer 3, or an app issue at Layer 7.",
+      "source": "CompTIA Network+ N10-009 Domain 1",
+      "keywords": ["osi", "osi model", "layers", "layer 2", "layer 3", "switching", "routing", "network+"]
+    },
+    {
+      "title": "Zero Trust Architecture",
+      "text": "Zero Trust assumes no user or device is trusted by default—even inside the network. Every request requires explicit identity verification, least-privilege access, and continuous monitoring.",
+      "source": "CompTIA Network+ N10-009 Domain 4",
+      "keywords": ["zero trust", "ztna", "least privilege", "identity", "cybersecurity", "mfa"]
+    }
+  ],
+  "memory": [
+    {
+      "title": "Manhattan Walk & Talk Format",
+      "text": "The host streams live while walking around Manhattan and joins Freedom Fusion LIVE as a guest while Professor Whiskers handles viewer questions, animations, and Network+ breakdowns.",
+      "source": "Host Show Format",
+      "keywords": ["manhattan", "walk", "format", "guest", "host"]
+    }
+  ]
+}

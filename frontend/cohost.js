@@ -2,11 +2,32 @@
 (() => {
   const liveMode = location.pathname === "/live";
   const liveStage = liveMode ? document.createElement("main") : undefined;
+  let liveSubtitles;
+  let subtitleTimer;
   if (liveStage) {
     document.title = "Kittycat Live";
     document.documentElement.classList.add("kittycat-live");
     liveStage.className = "kittycat-live-stage";
     document.body.prepend(liveStage);
+    liveSubtitles = document.createElement("div");
+    liveSubtitles.className = "kittycat-live-subtitles";
+    liveSubtitles.hidden = true;
+    document.body.append(liveSubtitles);
+  }
+
+  function showLiveSubtitle(displayText) {
+    if (!liveSubtitles || !displayText?.text) return;
+    const clean = String(displayText.text).replace(/\[[^\]]+\]/g, "").trim();
+    if (!clean) return;
+    const speaker = displayText.name || "Professor Whiskers";
+    liveSubtitles.innerHTML = "";
+    const tag = document.createElement("span");
+    tag.className = "speaker";
+    tag.textContent = `${speaker}:`;
+    liveSubtitles.append(tag, document.createTextNode(clean));
+    liveSubtitles.hidden = false;
+    clearTimeout(subtitleTimer);
+    subtitleTimer = setTimeout(() => { liveSubtitles.hidden = true; }, 9000);
   }
 
   const panel = document.createElement("details");
@@ -17,11 +38,29 @@
       <p class="cohost-status" role="status">Connecting…</p>
       <div class="cohost-row">
         <button type="button" data-control="hold">Mute and hold</button>
+        <button type="button" data-control="auto-speak" aria-pressed="false">Auto-speak: OFF</button>
+        <button type="button" data-control="wake-phrase" aria-pressed="false">Wake phrase: OFF</button>
+      </div>
+      <div class="cohost-row" style="margin-top:6px;">
+        <button type="button" data-control="intro">Speak intro</button>
+        <button type="button" data-control="next-topic">Next topic</button>
         <button type="button" data-control="suggest">Suggest transition</button>
+        <a href="/control" target="_blank" rel="noopener" style="color:#9ec5ff;font-size:12px;align-self:center;margin-left:auto;">iPhone Control ↗</a>
+      </div>
+      <div class="cohost-row" style="margin-top:6px;">
         <button type="button" data-control="voice-demo" hidden>Play voice demo</button>
         <button type="button" data-control="forget-motions" hidden>Forget learned commands</button>
         <button type="button" data-control="reset-live-memory" hidden>Clear live memory</button>
       </div>
+      <label>AI Host Personality
+        <select name="personality">
+          <option value="professor_whiskers">Professor Whiskers (Teacher / Network+)</option>
+          <option value="whiskers_comedian">Whiskers (Comedian)</option>
+          <option value="whiskers_tech_expert">Whiskers (Tech Expert)</option>
+          <option value="whiskers_cohost">Whiskers (Co-Host)</option>
+          <option value="pawsrig">Little Cat (Default)</option>
+        </select>
+      </label>
       <div class="cohost-voice-samples" hidden>
         <label for="cohost-voice-sample">Voice emotion</label>
         <select id="cohost-voice-sample" name="voice_sample"></select>
@@ -73,6 +112,9 @@
   const list = panel.querySelector(".cohost-review");
   const metrics = panel.querySelector(".cohost-metrics");
   const holdButton = panel.querySelector("[data-control=hold]");
+  const autoSpeakButton = panel.querySelector("[data-control=auto-speak]");
+  const wakePhraseButton = panel.querySelector("[data-control=wake-phrase]");
+  const personalitySelect = panel.querySelector("[name=personality]");
   const demoButton = panel.querySelector("[data-control=voice-demo]");
   const forgetButton = panel.querySelector("[data-control=forget-motions]");
   const clearLiveMemoryButton = panel.querySelector("[data-control=reset-live-memory]");
@@ -84,6 +126,8 @@
   let modelName;
   let clientId;
   let hold = false;
+  let autoSpeak = false;
+  let wakePhraseOnly = false;
   let stopOutput;
   let pendingMotion;
   let motionTimer;
@@ -265,6 +309,20 @@
       pendingMotion = null;
     } else if (message.type === "control" && message.text === "conversation-chain-start") {
       stopMotion();
+    } else if (message.type === "audio" || message.type === "audio-stream-start") {
+      if (message.display_text) showLiveSubtitle(message.display_text);
+      if (
+        usePawsRig &&
+        Array.isArray(message.actions?.expressions) &&
+        message.actions.expressions.length
+      ) {
+        const expr = message.actions.expressions[0];
+        const current = pawsRig?.currentAction?.() || "idle";
+        const passiveActions = new Set(["idle", "listen", "nod", "talk"]);
+        if (typeof expr === "string" && expr !== "idle" && expr !== current && passiveActions.has(current)) {
+          pawsRig?.play(expr);
+        }
+      }
     } else if (message.type === "avatar-motion") {
       if (Array.isArray(message.learned_command) && message.learned_command.length === 2 &&
           message.learned_command.every(part => typeof part === "string")) {
@@ -287,6 +345,16 @@
       sampleButton.disabled = hold;
       holdButton.textContent = hold ? "Resume co-host" : "Mute and hold";
       holdButton.setAttribute("aria-pressed", String(hold));
+      autoSpeak = Boolean(message.auto_speak);
+      autoSpeakButton.textContent = autoSpeak ? "Auto-speak: ON" : "Auto-speak: OFF";
+      autoSpeakButton.setAttribute("aria-pressed", String(autoSpeak));
+      wakePhraseOnly = Boolean(message.wake_phrase_only);
+      wakePhraseButton.textContent = wakePhraseOnly ? "Wake phrase: ON" : "Wake phrase: OFF";
+      wakePhraseButton.setAttribute("aria-pressed", String(wakePhraseOnly));
+      if (message.active_personality && personalitySelect.value !== message.active_personality) {
+        const hasOption = Array.from(personalitySelect.options).some(o => o.value === message.active_personality);
+        if (hasOption) personalitySelect.value = message.active_personality;
+      }
       if (message.message || ["Connecting…", "The co-host is disconnected."].includes(status.textContent)) {
         status.textContent = message.message || "Co-host ready.";
       }
@@ -318,6 +386,10 @@
     if (action === "hold") {
       if (!hold) stopOutput?.();
       control("hold", { hold: !hold });
+    } else if (action === "auto-speak") {
+      control("auto-speak", { enabled: !autoSpeak });
+    } else if (action === "wake-phrase") {
+      control("wake-phrase", { enabled: !wakePhraseOnly });
     } else if (action === "lesson") {
       savedLesson = lesson.value;
       control("lesson", { lesson: lesson.value });
@@ -334,6 +406,10 @@
       if (action === "draft") edits.delete(id);
       control(action, { id });
     }
+  });
+
+  personalitySelect.addEventListener("change", () => {
+    control("personality", { personality: personalitySelect.value });
   });
 
   panel.querySelector("form").addEventListener("submit", event => {

@@ -85,13 +85,16 @@ export function mountPawsRig(target?: HTMLElement) {
   let speech: SpeechPlayback | null = null;
   let sampleLiveMouth: ReturnType<typeof analyseMouth> | null = null;
 
+  let lastAction = '';
+  let lastSpeaking = '';
+
   const observer = new ResizeObserver(([{ contentRect }]) => {
     const scale = Math.min(contentRect.width / 536, contentRect.height / 960);
     width = Math.floor(536 * scale);
     height = Math.floor(960 * scale);
     if (!width || !height) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2, 960 / height);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5, 960 / height);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.width = Math.round(width * dpr);
@@ -109,7 +112,7 @@ export function mountPawsRig(target?: HTMLElement) {
 
   function frame(now: number) {
     frameId = requestAnimationFrame(frame);
-    const elapsed = (now - lastFrame) / 1000;
+    const elapsed = Math.min(0.05, Math.max(0, (now - lastFrame) / 1000));
     lastFrame = now;
     if (!target && !legacyCanvas?.isConnected) {
       detach();
@@ -145,8 +148,15 @@ export function mountPawsRig(target?: HTMLElement) {
       if (legacyCanvas && !legacyCanvas.classList.contains('pawsrig-fallback')) {
         legacyCanvas.classList.add('pawsrig-fallback');
       }
-      stage.dataset.action = action;
-      stage.dataset.speaking = String(pose.isSpeaking);
+      if (action !== lastAction) {
+        lastAction = action;
+        stage.dataset.action = action;
+      }
+      const speakingStr = String(pose.isSpeaking);
+      if (speakingStr !== lastSpeaking) {
+        lastSpeaking = speakingStr;
+        stage.dataset.speaking = speakingStr;
+      }
     }
   }
 
@@ -158,6 +168,9 @@ export function mountPawsRig(target?: HTMLElement) {
   return {
     play(action: AnimationId) {
       return engine.trigger(action).accepted;
+    },
+    currentAction(): AnimationId {
+      return engine.getSnapshot().currentAction;
     },
     useSpeech(playback: SpeechPlayback) {
       speech = playback;

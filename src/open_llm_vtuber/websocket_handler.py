@@ -6,6 +6,7 @@ import os
 from functools import partial
 from time import monotonic
 from urllib.parse import urlsplit
+from uuid import uuid4
 from enum import Enum
 import httpx
 import numpy as np
@@ -13,10 +14,12 @@ from loguru import logger
 
 from .service_context import ServiceContext
 from .cohost import (
+    AUTO_REPLY_COOLDOWN_SECONDS,
     AVATAR_MOTIONS,
     CohostSession,
     MOTION_QUEUE_LIMIT,
     MOTION_TIMEOUT_SECONDS,
+    ReviewItem,
     ViewerComment,
     VOICE_DEMO_PATH,
     VOICE_DEMO_TEXT,
@@ -24,8 +27,12 @@ from .cohost import (
     VOICE_SAMPLE_TEXT,
     VOICE_SAMPLES,
     available_motions,
+    is_authorized_host,
     motion_shortcut,
+    parse_host_command,
 )
+from .studio_controller import PERSONALITY_MAP
+from .studio_store import StudioStore
 from .agent.output_types import DisplayText
 from .agent.stateless_llm.openai_compatible_llm import ChatProviderError
 from .cohost_knowledge import PublicKnowledge, PublicKnowledgeStore
@@ -88,7 +95,11 @@ class WSMessage(TypedDict, total=False):
 class WebSocketHandler:
     """Handles WebSocket connections and message routing"""
 
-    def __init__(self, default_context_cache: ServiceContext):
+    def __init__(
+        self,
+        default_context_cache: ServiceContext,
+        studio_store: StudioStore | None = None,
+    ):
         """Initialize the WebSocket handler with default context"""
         self.client_connections: Dict[str, WebSocket] = {}
         self.client_contexts: Dict[str, ServiceContext] = {}
@@ -96,14 +107,27 @@ class WebSocketHandler:
         self.current_conversation_tasks: Dict[str, Optional[asyncio.Task]] = {}
         self.default_context_cache = default_context_cache
         self.received_data_buffers: Dict[str, np.ndarray] = {}
+        self.asr_streams: dict[str, object] = {}
         self.cohost_sessions: dict[str, CohostSession] = {}
         self.cohost_drafts: dict[str, asyncio.Task] = {}
         self.cohost_motion_tasks: dict[str, asyncio.Task] = {}
+        self.cohost_auto_tasks: dict[str, asyncio.Task] = {}
         self.cohost_knowledge = PublicKnowledgeStore()
+        self.studio_store = studio_store or StudioStore()
+        self.studio_controller = None
         self.blocked_terms = tuple(
             term.strip().casefold()
             for term in os.getenv("COHOST_BLOCKED_TERMS", "").split(",")
             if term.strip()
+        )
+        raw_hosts = ",".join(
+            val for val in (os.getenv("COHOST_HOST_HANDLES", ""), os.getenv("TIKTOK_HOST_HANDLE", "")) if val
+        )
+        self.host_handles = frozenset(
+            h.strip().lstrip("@").casefold() for h in raw_hosts.split(",") if h.strip()
+        )
+        self.host_ids = frozenset(
+            i.strip() for i in os.getenv("COHOST_HOST_USER_IDS", "").split(",") if i.strip()
         )
 
         # Message handlers mapping
@@ -353,6 +377,12 @@ class WebSocketHandler:
         motion_task = self.cohost_motion_tasks.pop(client_uid, None)
         if motion_task:
             motion_task.cancel()
+        auto_task = self.cohost_auto_tasks.pop(client_uid, None)
+        if auto_task:
+            auto_task.cancel()
+        asr_stream = self.asr_streams.pop(client_uid, None)
+        if asr_stream is not None:
+            await asr_stream.close()
         self.received_data_buffers.pop(client_uid, None)
         if client_uid in self.current_conversation_tasks:
             task = self.current_conversation_tasks[client_uid]
@@ -371,6 +401,9 @@ class WebSocketHandler:
         """Clean up failed connection data"""
         self.client_connections.pop(client_uid, None)
         self.client_contexts.pop(client_uid, None)
+        asr_stream = self.asr_streams.pop(client_uid, None)
+        if asr_stream is not None:
+            await asr_stream.close()
         self.received_data_buffers.pop(client_uid, None)
         self.chat_group_manager.client_group_map.pop(client_uid, None)
         self.cohost_sessions.pop(client_uid, None)
@@ -534,16 +567,28 @@ class WebSocketHandler:
     async def _handle_audio_data(
         self, websocket: WebSocket, client_uid: str, data: WSMessage
     ) -> None:
-        """Handle incoming audio data"""
+        """Handle incoming audio data and stream live into AssemblyAI when enabled."""
         audio_data = data.get("audio", [])
         if audio_data:
             if self.received_data_buffers[client_uid].size + len(audio_data) > 60 * 16000:
                 self.received_data_buffers[client_uid] = np.array([], dtype=np.float32)
+                stream = self.asr_streams.get(client_uid)
+                if stream is not None:
+                    stream.reset_turn()
                 raise ValueError("Microphone turn exceeded 60 seconds.")
+            chunk_np = np.array(audio_data, dtype=np.float32)
             self.received_data_buffers[client_uid] = np.append(
                 self.received_data_buffers[client_uid],
-                np.array(audio_data, dtype=np.float32),
+                chunk_np,
             )
+            context = self.client_contexts.get(client_uid)
+            asr = getattr(context, "asr_engine", None)
+            if asr is not None and getattr(asr, "supports_streaming", False):
+                stream = self.asr_streams.get(client_uid)
+                if stream is None:
+                    stream = asr.create_stream_session()
+                    self.asr_streams[client_uid] = stream
+                await stream.feed_audio(chunk_np)
 
     async def _handle_raw_audio_data(
         self, websocket: WebSocket, client_uid: str, data: WSMessage
@@ -583,6 +628,9 @@ class WebSocketHandler:
         if self.cohost_sessions[client_uid].hold:
             if msg_type == "mic-audio-end":
                 self.received_data_buffers[client_uid] = np.array([], dtype=np.float32)
+                stream = self.asr_streams.get(client_uid)
+                if stream is not None:
+                    stream.reset_turn()
             await websocket.send_json({"type": "control", "text": "conversation-chain-end"})
             return
         if self._cohost_busy(client_uid):
@@ -591,8 +639,26 @@ class WebSocketHandler:
             # Keep a completed microphone turn even if playback never sent its interrupt.
             await self._handle_interrupt(websocket, client_uid, {})
             await websocket.send_json({"type": "interrupt-signal"})
+        if msg_type == "mic-audio-end" and self.cohost_sessions[client_uid].wake_phrase_only:
+            data = {**data, "metadata": {**(data.get("metadata") or {}), "wake_phrase_only": True}}
+        effective_msg_type = data.get("type", "")
+        if msg_type == "mic-audio-end":
+            stream = self.asr_streams.get(client_uid)
+            if stream is not None and stream.connected:
+                try:
+                    transcript = await stream.finish_turn(wait_timeout=2.0)
+                except Exception as exc:
+                    logger.warning("Live AssemblyAI turn finalize failed ({}); falling back to buffer", type(exc).__name__)
+                    transcript = ""
+                if transcript:
+                    self.received_data_buffers[client_uid] = np.array([], dtype=np.float32)
+                    await websocket.send_text(
+                        json.dumps({"type": "user-input-transcription", "text": transcript})
+                    )
+                    effective_msg_type = "text-input"
+                    data = {**data, "text": transcript}
         await handle_conversation_trigger(
-            msg_type=data.get("type", ""),
+            msg_type=effective_msg_type,
             data=data,
             client_uid=client_uid,
             context=self.client_contexts[client_uid],
@@ -624,7 +690,7 @@ class WebSocketHandler:
         if not group:
             return "unsupported"
         now = monotonic()
-        if now - session.last_motion < 2.5:
+        if now - session.last_motion < 1.2:
             return "cooldown"
         session.last_motion = now
         session.metrics["motions"] += 1
@@ -642,7 +708,60 @@ class WebSocketHandler:
 
     async def receive_viewer_comment(self, client_uid: str, comment: ViewerComment) -> str:
         session = self.cohost_sessions[client_uid]
-        result = session.ingest(comment, self.blocked_terms)
+        host = is_authorized_host(comment, self.host_handles, self.host_ids)
+        session_id = session.studio_session_id or (
+            self.studio_controller.active_session_id if self.studio_controller else ""
+        ) or ""
+        viewer_info = self.studio_store.record_viewer_activity(
+            session_id=session_id,
+            viewer_id=comment.viewer_id,
+            viewer_handle=comment.viewer_handle,
+            viewer_name=comment.viewer_name,
+            kind=comment.event_type,
+            text=comment.text,
+            gift_value=comment.gift_value,
+        )
+        is_returning = bool(viewer_info.get("is_returning"))
+
+        # Authorized host priority override (e.g., iPhone dictation into TikTok comments or API command)
+        if host and comment.event_type == "comment":
+            session.metrics["host_commands"] += 1
+            interaction_id = self.studio_store.record_interaction(
+                session_id=session_id,
+                kind="host_command",
+                text=comment.text,
+                viewer_id=comment.viewer_id,
+                viewer_handle=comment.viewer_handle,
+                viewer_name=comment.viewer_name or "Host",
+                is_host=True,
+            )
+            return await self.execute_host_command(
+                client_uid,
+                comment.text,
+                viewer_name=comment.viewer_name or "Host",
+                viewer_handle=comment.viewer_handle,
+                interaction_id=interaction_id,
+            )
+
+        interaction_id = ""
+        if comment.event_type in {"comment", "gift"}:
+            interaction_id = self.studio_store.record_interaction(
+                session_id=session_id,
+                kind="gift" if comment.event_type == "gift" else "comment",
+                text=comment.text,
+                viewer_id=comment.viewer_id,
+                viewer_handle=comment.viewer_handle,
+                viewer_name=comment.viewer_name,
+                gift_value=comment.gift_value,
+            )
+
+        result = session.ingest(
+            comment,
+            self.blocked_terms,
+            is_host=host,
+            is_returning=is_returning,
+            interaction_id=interaction_id,
+        )
         if result == "unclassified":
             context = self.client_contexts[client_uid]
             if (
@@ -659,7 +778,22 @@ class WebSocketHandler:
                     )
                 result = "checking"
             else:
-                result = session.review_unclassified(comment)
+                result = session.review_unclassified(
+                    comment,
+                    is_host=host,
+                    is_returning=is_returning,
+                    interaction_id=interaction_id,
+                )
+                if result == "queued" and interaction_id:
+                    self.studio_store.record_interaction(
+                        interaction_id=interaction_id,
+                        session_id=session_id,
+                        kind="question",
+                        text=comment.text,
+                        viewer_id=comment.viewer_id,
+                        viewer_handle=comment.viewer_handle,
+                        viewer_name=comment.viewer_name,
+                    )
         return await self._present_viewer_result(client_uid, session, result)
 
     async def _resolve_viewer_motions(self, client_uid: str, session: CohostSession) -> None:
@@ -678,7 +812,29 @@ class WebSocketHandler:
                     logger.warning("Motion classification failed ({})", type(exc).__name__)
             if self.cohost_sessions.get(client_uid) is not session:
                 return
-            result = action if action in motions else session.review_unclassified(comment)
+            if action in motions:
+                result = action
+            else:
+                session_id = session.studio_session_id or (
+                    self.studio_controller.active_session_id if self.studio_controller else ""
+                ) or ""
+                profile = self.studio_store.get_viewer_profile(
+                    viewer_id=comment.viewer_id,
+                    viewer_handle=comment.viewer_handle,
+                    viewer_name=comment.viewer_name,
+                )
+                is_returning = bool(profile and (profile.get("visit_count", 0) > 1 or profile.get("message_count", 0) >= 2))
+                iid = self.studio_store.record_interaction(
+                    session_id=session_id,
+                    kind="question",
+                    text=comment.text,
+                    viewer_id=comment.viewer_id,
+                    viewer_handle=comment.viewer_handle,
+                    viewer_name=comment.viewer_name,
+                )
+                result = session.review_unclassified(
+                    comment, is_returning=is_returning, interaction_id=iid
+                )
             await self._present_viewer_result(client_uid, session, result, learned_phrase=comment.text)
 
     async def _present_viewer_result(
@@ -686,13 +842,263 @@ class WebSocketHandler:
     ) -> str:
         if result in AVATAR_MOTIONS:
             result = await self._play_cohost_motion(client_uid, result, learned_phrase)
+        elif result == "gift_queued":
+            await self._play_cohost_motion(client_uid, "heart")
+            result = "queued"
         elif result == "queued" and not session.hold and not self._cohost_busy(client_uid):
             await self._play_cohost_motion(client_uid, "listen")
         await self.client_connections[client_uid].send_json(session.status())
+        if result == "queued" and session.auto_speak:
+            self._schedule_auto_speak(client_uid)
         return result
+
+    def _schedule_auto_speak(self, client_uid: str) -> None:
+        task = self.cohost_auto_tasks.get(client_uid)
+        if task and not task.done():
+            return
+        self.cohost_auto_tasks[client_uid] = asyncio.create_task(self._run_auto_speak(client_uid))
+
+    async def _run_auto_speak(self, client_uid: str) -> None:
+        session = self.cohost_sessions.get(client_uid)
+        websocket = self.client_connections.get(client_uid)
+        if not session or not websocket or not session.auto_speak:
+            return
+        if session.hold or session.instructor_speaking or self._cohost_busy(client_uid):
+            return
+        item = session.next_auto_candidate()
+        if not item:
+            return
+        elapsed = monotonic() - session.last_auto_reply
+        if not item.is_host and elapsed < AUTO_REPLY_COOLDOWN_SECONDS:
+            await asyncio.sleep(max(0.2, AUTO_REPLY_COOLDOWN_SECONDS - elapsed))
+            if (
+                client_uid not in self.cohost_sessions
+                or not session.auto_speak
+                or session.hold
+                or session.instructor_speaking
+                or self._cohost_busy(client_uid)
+                or item.id not in session.items
+            ):
+                return
+        if not item.answer:
+            await self._draft_cohost(websocket, client_uid, session, item)
+        answer = item.answer.strip()
+        if not answer or item.id not in session.items:
+            return
+        session.items.pop(item.id, None)
+        session.metrics["approved"] += 1
+        session.metrics["auto_spoken"] += 1
+        session.last_auto_reply = monotonic()
+        if item.kind in {"question", "host"}:
+            session.live_replies.append((monotonic(), item.text, answer))
+        self.current_conversation_tasks[client_uid] = asyncio.create_task(
+            self._speak_cohost(websocket, client_uid, session, item, answer)
+        )
+        await websocket.send_json(session.status("Auto-answering viewer…"))
+
+    async def apply_studio_settings(
+        self,
+        *,
+        client_uid: str | None = None,
+        personality: str | None = None,
+        topic: str | None = None,
+        lesson: str | None = None,
+        auto_speak: bool | None = None,
+        wake_phrase_only: bool | None = None,
+        hold: bool | None = None,
+        session_id: str | None = None,
+    ) -> dict:
+        target_uid = client_uid or next(iter(self.cohost_sessions), None)
+        if not target_uid or target_uid not in self.cohost_sessions:
+            return {"applied": False, "reason": "No active avatar browser session connected."}
+        session = self.cohost_sessions[target_uid]
+        websocket = self.client_connections[target_uid]
+        context = self.client_contexts[target_uid]
+
+        if session_id is not None:
+            session.studio_session_id = session_id
+        if topic is not None:
+            session.active_topic = topic.strip()[:180]
+        if lesson is not None:
+            session.lesson = lesson.strip()[:4000]
+        if auto_speak is not None:
+            session.auto_speak = auto_speak
+        if wake_phrase_only is not None:
+            session.wake_phrase_only = wake_phrase_only
+        if hold is not None:
+            session.hold = hold
+            if hold and self._cohost_busy(target_uid):
+                await self._handle_interrupt(websocket, target_uid, {})
+                await websocket.send_json({"type": "interrupt-signal"})
+
+        switched_personality = None
+        if personality:
+            yaml_file = PERSONALITY_MAP.get(personality.strip().lower())
+            if yaml_file:
+                try:
+                    await context.handle_config_switch(websocket, yaml_file)
+                    session.active_personality = personality.strip().lower()
+                    switched_personality = yaml_file
+                except Exception as exc:
+                    logger.warning("Personality switch to {} failed ({})", yaml_file, type(exc).__name__)
+
+        await websocket.send_json(session.status("Studio settings updated."))
+        if session.auto_speak and session.items:
+            self._schedule_auto_speak(target_uid)
+        return {
+            "applied": True,
+            "client_uid": target_uid,
+            "switched_personality": switched_personality,
+            "auto_speak": session.auto_speak,
+            "wake_phrase_only": session.wake_phrase_only,
+            "hold": session.hold,
+            "active_topic": session.active_topic,
+        }
+
+    async def trigger_autonomous_intro(self, client_uid: str | None = None, *, topic: str = "") -> dict:
+        target_uid = client_uid or next(iter(self.cohost_sessions), None)
+        if not target_uid or target_uid not in self.cohost_sessions:
+            return {"spoken": False, "reason": "No active avatar session."}
+        session = self.cohost_sessions[target_uid]
+        websocket = self.client_connections[target_uid]
+        active_topic = topic or session.active_topic or "cybersecurity and Network+"
+        answer = (
+            f"Hey everyone, welcome to Freedom Fusion LIVE! I'm Professor Whiskers, "
+            f"and today we're diving into {active_topic}—drop your questions in the chat!"
+        )
+        item = ReviewItem(uuid4().hex, "intro", f"Introduce {active_topic}", session.lesson, answer=answer, is_host=True)
+        await self._play_cohost_motion(target_uid, "wave")
+        self.current_conversation_tasks[target_uid] = asyncio.create_task(
+            self._speak_cohost(websocket, target_uid, session, item, answer)
+        )
+        return {"spoken": True, "text": answer}
+
+    async def execute_host_command(
+        self,
+        client_uid: str | None,
+        text: str,
+        *,
+        viewer_name: str = "Host",
+        viewer_handle: str | None = None,
+        interaction_id: str = "",
+    ) -> str:
+        target_uid = client_uid or next(iter(self.cohost_sessions), None)
+        if not target_uid or target_uid not in self.cohost_sessions:
+            return "no_session"
+        session = self.cohost_sessions[target_uid]
+        websocket = self.client_connections[target_uid]
+        parsed = parse_host_command(text) or {"command": "direct", "arg": text.strip()}
+        cmd, arg = parsed["command"], parsed["arg"]
+
+        if cmd == "hold":
+            should_hold = arg.lower() in {"on", "true", "1", "yes"}
+            await self.apply_studio_settings(client_uid=target_uid, hold=should_hold)
+            return "paused" if should_hold else "resumed"
+        if cmd == "auto":
+            enabled = arg.lower() in {"on", "true", "1", "yes"}
+            await self.apply_studio_settings(client_uid=target_uid, auto_speak=enabled)
+            return f"auto_{'on' if enabled else 'off'}"
+        if cmd == "wake":
+            enabled = arg.lower() in {"on", "true", "1", "yes"}
+            await self.apply_studio_settings(client_uid=target_uid, wake_phrase_only=enabled)
+            return f"wake_{'on' if enabled else 'off'}"
+        if cmd == "personality" and arg:
+            await self.apply_studio_settings(client_uid=target_uid, personality=arg)
+            return f"personality:{arg}"
+        if cmd == "topic" and arg:
+            self.studio_store.add_topics([{"title": arg, "notes": f"Host topic: {arg}"}])
+            self.studio_store.pop_next_topic()
+            await self.apply_studio_settings(
+                client_uid=target_uid, topic=arg, lesson=f"Current LIVE Topic: {arg}"
+            )
+            return "topic_updated"
+        if cmd == "queue" and arg:
+            self.studio_store.add_topics([{"title": arg, "notes": "Queued by host"}])
+            await websocket.send_json(session.status(f"Queued topic: {arg}"))
+            return "topic_queued"
+        if cmd == "next_topic":
+            nxt = self.studio_store.pop_next_topic()
+            if not nxt:
+                await websocket.send_json(session.status("Topic queue is empty."))
+                return "queue_empty"
+            await self.apply_studio_settings(
+                client_uid=target_uid,
+                topic=nxt["title"],
+                lesson=f"{nxt['title']}: {nxt.get('notes', '')}".strip(": "),
+            )
+            await self.trigger_autonomous_intro(target_uid, topic=nxt["title"])
+            return "next_topic"
+        if cmd == "note" and arg:
+            self.studio_store.save_voice_note(arg, session_id=session.studio_session_id, category="host")
+            await websocket.send_json(session.status("Saved host note."))
+            return "note_saved"
+        if cmd == "intro":
+            await self.trigger_autonomous_intro(target_uid, topic=arg or session.active_topic)
+            return "intro_spoken"
+        if cmd == "wrap":
+            if self.studio_controller:
+                await self.studio_controller.stop_live(generate_summary=True, notify_pushcut=True)
+            else:
+                await self.apply_studio_settings(client_uid=target_uid, hold=True, auto_speak=False)
+            return "wrapped"
+        if cmd == "say" and arg:
+            if self._cohost_busy(target_uid):
+                await self._handle_interrupt(websocket, target_uid, {})
+                await websocket.send_json({"type": "interrupt-signal"})
+            item = ReviewItem(
+                uuid4().hex, "host", text, session.lesson, answer=arg[:450],
+                viewer_name=viewer_name, viewer_handle=viewer_handle, is_host=True,
+                interaction_id=interaction_id,
+            )
+            self.current_conversation_tasks[target_uid] = asyncio.create_task(
+                self._speak_cohost(websocket, target_uid, session, item, arg[:450])
+            )
+            return "host_spoken"
+
+        # Default: direct host directive -> interrupt non-host speech, draft & speak with priority
+        directive = arg or text
+        if self._cohost_busy(target_uid):
+            await self._handle_interrupt(websocket, target_uid, {})
+            await websocket.send_json({"type": "interrupt-signal"})
+        item = session.add(
+            "question",
+            directive,
+            viewer_name,
+            viewer_handle=viewer_handle,
+            is_host=True,
+            priority=200,
+            interaction_id=interaction_id,
+        )
+        if not item:
+            return "full"
+        await self._draft_cohost(websocket, target_uid, session, item)
+        answer = item.answer.strip()
+        if answer and item.id in session.items:
+            session.items.pop(item.id, None)
+            session.metrics["approved"] += 1
+            session.live_replies.append((monotonic(), directive, answer))
+            self.current_conversation_tasks[target_uid] = asyncio.create_task(
+                self._speak_cohost(websocket, target_uid, session, item, answer)
+            )
+            await websocket.send_json(session.status("Answering host command…"))
+            return "host_spoken"
+        await websocket.send_json(session.status("Host command queued."))
+        return "host_queued"
 
     async def _handle_viewer_comment(self, websocket, client_uid, data):
         await self.receive_viewer_comment(client_uid, ViewerComment.model_validate(data))
+
+    def _prewarm_asr_stream(self, client_uid: str) -> None:
+        context = self.client_contexts.get(client_uid)
+        asr = getattr(context, "asr_engine", None)
+        if asr is None or not getattr(asr, "supports_streaming", False):
+            return
+        stream = self.asr_streams.get(client_uid)
+        if stream is None:
+            stream = asr.create_stream_session()
+            self.asr_streams[client_uid] = stream
+        if not stream.connected and hasattr(stream, "prewarm"):
+            asyncio.create_task(stream.prewarm())
 
     async def _handle_cohost_control(self, websocket, client_uid, data):
         session = self.cohost_sessions[client_uid]
@@ -711,7 +1117,10 @@ class WebSocketHandler:
             session.lesson = data["lesson"].strip()[:4000]
             status = "Lesson context saved for this session."
         elif action == "floor":
-            session.instructor_speaking = data.get("speaking") is True
+            speaking = data.get("speaking") is True
+            session.instructor_speaking = speaking
+            if speaking:
+                self._prewarm_asr_stream(client_uid)
         elif action == "hold":
             session.hold = data.get("hold") is True
             session.metrics["overrides"] += int(session.hold)
@@ -719,6 +1128,24 @@ class WebSocketHandler:
                 await self._handle_interrupt(websocket, client_uid, {})
                 await websocket.send_json({"type": "interrupt-signal"})
             status = "Co-host paused." if session.hold else "Co-host ready."
+        elif action == "auto-speak":
+            session.auto_speak = data.get("enabled") is True
+            status = "Autonomous LIVE mode ON." if session.auto_speak else "Manual review mode ON."
+            if session.auto_speak and session.items:
+                self._schedule_auto_speak(client_uid)
+        elif action == "wake-phrase":
+            session.wake_phrase_only = data.get("enabled") is True
+            status = "Wake phrase ('Hey Whiskers') required for mic." if session.wake_phrase_only else "Open mic mode."
+        elif action == "personality" and isinstance(data.get("personality"), str):
+            res = await self.apply_studio_settings(client_uid=client_uid, personality=data["personality"])
+            status = f"Switched host mode to {data['personality']}." if res.get("switched_personality") else "Unknown personality."
+            return
+        elif action == "intro":
+            await self.trigger_autonomous_intro(client_uid)
+            status = "Speaking LIVE introduction…"
+        elif action == "next-topic":
+            outcome = await self.execute_host_command(client_uid, "!next")
+            status = "Advanced to next topic." if outcome == "next_topic" else "Topic queue is empty."
         elif action in {"voice-demo", "voice-sample"}:
             is_demo = action == "voice-demo"
             sample_id = data.get("sample")
@@ -838,6 +1265,12 @@ class WebSocketHandler:
             await websocket.send_text(payload)
 
         try:
+            if item.kind in {"welcome", "acknowledgment"}:
+                await self._play_cohost_motion(client_uid, "wave")
+            elif item.kind == "gift":
+                await self._play_cohost_motion(client_uid, "heart")
+            elif item.kind == "question":
+                await self._play_cohost_motion(client_uid, "explain")
             await send_conversation_start_signals(send)
             character = context.character_config
             await tts.speak(
@@ -848,10 +1281,21 @@ class WebSocketHandler:
                 context.tts_engine,
                 send,
             )
+            if getattr(item, "interaction_id", ""):
+                self.studio_store.mark_answered(
+                    item.interaction_id,
+                    answer=answer,
+                    latency_ms=session.last_response_ms,
+                    sources=item.sources,
+                )
             await finalize_conversation_turn(tts, send, client_uid)
         finally:
             tts.clear()
+            if self.current_conversation_tasks.get(client_uid) is asyncio.current_task():
+                self.current_conversation_tasks[client_uid] = None
         await websocket.send_json(session.status())
+        if session.auto_speak and session.items:
+            self._schedule_auto_speak(client_uid)
 
     async def _handle_fetch_configs(
         self, websocket: WebSocket, client_uid: str, data: WSMessage

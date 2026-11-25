@@ -2,16 +2,26 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="./cohost.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#151223" />
+    <link rel="stylesheet" href="./cohost.css?v=2" />
     <title>Open-LLM-Vtuber</title>
+    <script>
+      try {
+        const raw = localStorage.getItem("vadSettings");
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!parsed || (parsed.redemptionFrames === 35 && parsed.positiveSpeechThreshold === 50 && parsed.negativeSpeechThreshold === 35)) {
+          localStorage.setItem("vadSettings", JSON.stringify({ positiveSpeechThreshold: 50, negativeSpeechThreshold: 35, redemptionFrames: 16 }));
+        }
+      } catch {}
+    </script>
     <script type="module" crossorigin src="./assets/main-nu7uwxNJ.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/main-QEkl09-0.css">
   </head>
 
   <body>
     <div id="root"></div>
-    <script src="./streaming-audio.js"></script>
-    <script src="./cohost.js"></script>
+    <script src="./streaming-audio.js?v=2"></script>
+    <script src="./cohost.js?v=3"></script>
   </body>
 </html>

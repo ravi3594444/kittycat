@@ -19,7 +19,7 @@ from .types import AvatarMotionHandler, WebSocketSend
 from .tts_manager import TTSTaskManager
 from ..chat_history_manager import store_message
 from ..service_context import ServiceContext
-from ..cohost import available_motions
+from ..cohost import available_motions, detect_explicit_motion, extract_wake_phrase
 
 # Import necessary types from agent outputs
 from ..agent.output_types import SentenceOutput, AudioOutput, DisplayText
@@ -68,11 +68,26 @@ async def process_single_conversation(
             await send_conversation_end_signal(websocket_send, None)
             return ""
 
+        if (metadata or {}).get("wake_phrase_only") and input_text.strip():
+            matched, cleaned = extract_wake_phrase(input_text)
+            if not matched:
+                logger.debug("Wake-phrase gate ignored ambient speech: {}", input_text[:80])
+                await send_conversation_end_signal(websocket_send, None)
+                return ""
+            input_text = cleaned or "Hey!"
+
         if avatar_motion_handler and context.live2d_model and not (metadata or {}).get("proactive_speak"):
+            motions = available_motions(context.live2d_model.model_info)
             metadata = {
                 **(metadata or {}),
-                "avatar_motions": available_motions(context.live2d_model.model_info),
+                "avatar_motions": motions,
             }
+            if input_text.strip():
+                matched_motion = detect_explicit_motion(input_text, motions)
+                if matched_motion:
+                    motion_res = await avatar_motion_handler(matched_motion)
+                    if motion_res == "animated":
+                        metadata["matched_motion"] = matched_motion
 
         # Create batch input
         batch_input = create_batch_input(
