@@ -85,3 +85,14 @@ Source: Rome in Slack, Nov 28 ~22:07–22:15 IST. Kitty talks like a person and 
 - Show Kitty dispatching the TikTok live, saying something like: "Hey, I am ready to sell on TikTok live, about to go live now."
 - The live runs through OBS on the computer, showing what's on the iPhone screen in the OBS virtual camera — that is Kitty. While scrolling through Threads, Kitty shows the relevant thread when anyone asks for more info. The live shows the actual iPhone doing things on Threads — executing wild routines like reposting the latest threads clusters.
 - Snowball effect: the more people like / repost / requote, the easier it is for other people to discover us.
+
+## 11. Two people want to work with us — 50% vs 20% (Rome's call)
+Source: Rome in Slack, Nov 28 ~22:19–22:22 IST.
+
+- Two people want to work with Freedom Fusion.
+- One of them is willing to offer 50% if we refer them to a client who wants marketing — way better than the other person, who offered 20%.
+- But the one who offered 20% has a track record of working with bigger companies. The one who offered 50% has no such track record.
+- Rome likes the 50% offer.
+- Rome told the 50% person: we would only work with you if you integrate yourself as a feudal hustler into our talent agency.
+- They wouldn't just work with someone who only shows a proposal, doesn't explain any of their capabilities, and tells them to promote them. Rome explained it to him that way.
+- Note: the two people's names were not given in these messages.
