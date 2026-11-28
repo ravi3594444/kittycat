@@ -49,3 +49,19 @@ Goal: Kitty verifies if a lead is good or not, so Rome never has to send a voice
 - Video clips in Slack (18:41 and 19:14 IST).
 - Images: IMG_4334.png (19:30 and 20:00 IST).
 - These were not transcribed — listen/watch them in Slack before acting on anything in them.
+
+## 8. The video-editor role, explained once (for Kitty to use with new leads)
+Source: Rome's voice notes (1:19 + 4:59), forwarded Nov 28 ~21:03 IST. This is the explanation Kitty gives to every new video-editor lead, so Rome never re-explains it.
+
+- Not a full-time job, not freelance. The idea is to grow together with the talent agency.
+- Edit videos from Rome's Threads and socials: stitch threads together, show threads inside the videos, show YouTube / Instagram content, and show the in-house brands (Freedom Fusion Detailing, Properties, Freedom Fusion System) — lightly, just to showcase the portfolio, not overdone.
+- Teach CapCut and free tools. Run Zoom workshops (Rome can provide his Zoom if the editor doesn't have one).
+- Build the incubator over time: create videos showing how the editor promotes the brand, include an affiliate link in each video so the work is tracked to the editor, and show how the tools are used.
+- Connect Freedom Founders with Feudal Lords (business owners). Lords pay $295/month to join the incubator: they learn video editing and get access to the CRM system. Paying $295 only for a workshop gets them just the workshop; the incubator gives them all the other systems too.
+- When a Lord needs video editing done, connect a trained Freedom Founder through the agency — never direct. The editor gets a referral share for connecting them.
+- Two communities: Lords in Freedom Fusion Land, Founders in Freedom Fusion Craft.
+- Two types of people: Founders who want to learn (and don't want to pay a lot), and business owners who will pay $295/month to learn, get CRM access, and get work done. Brand owners who need UGC videos: Founders do the work, the agency collects the payment, the editor benefits in between.
+- Mini workshops for people who won't pay the full $295/month — e.g. learn to edit on CapCut.
+- Show the solutions as they are built (CRM, automations) to make editing easier. Show Rome's real-life documentary as he travels across countries. Show how to improve brand visibility and get seen on Threads.
+- The agency is small and works across Africa, India, and the US (Miami, LA, New York). People work at their own pace.
+- The point: explain once, Kitty does the rest.
