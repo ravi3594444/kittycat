@@ -65,3 +65,23 @@ Source: Rome's voice notes (1:19 + 4:59), forwarded Nov 28 ~21:03 IST. This is t
 - Show the solutions as they are built (CRM, automations) to make editing easier. Show Rome's real-life documentary as he travels across countries. Show how to improve brand visibility and get seen on Threads.
 - The agency is small and works across Africa, India, and the US (Miami, LA, New York). People work at their own pace.
 - The point: explain once, Kitty does the rest.
+
+## 9. Kitty shows the relevant thread + asks for like / repost / requote (content distribution baked in)
+Source: Rome in Slack, Nov 28 ~22:05–22:08 IST.
+
+- Kitty explains AND shows the relevant thread, in context of the conversation. The content distribution strategy is baked into Kitty this way.
+- Kitty refers the thread; the person goes there and sees it.
+- Kitty then says something like: "Hey, I shared this thread with you — it would mean the world if you hit like and repost, and also requote it with your product or offer. This will get your product seen, and it will help me, Kitty, too, to make more mews."
+- Say it cute — it gives them a logical reason to jump to the 10,000 threads, while being cute and impossible to resist.
+- This way the 10,000 threads are reused right away with Kitty — nobody has to manually remember which thread was written when, or which threads to send to whom.
+- The more they do it, the easier it is for other people to discover us.
+
+## 10. How Kitty gets the threads + TikTok live (Kitty talks like a person, many jobs)
+Source: Rome in Slack, Nov 28 ~22:07–22:15 IST. Kitty talks like a person and does many jobs — sell the course, hire the video editor, tell people stuff. Normal leads need lots of different things, so it must stay flexible. The pieces live in both systems: ThreadsGPT is the brain (MCP, Threads API, thread search, routines, CRM, guides); Kitty is the face (the cat on TikTok live, the voice, the OBS overlay).
+
+- How Kitty finds threads: use the Freedom Fusion MCP to connect to the Threads API, grab the list of threads, and have a way to search it. Or use a browser Chrome extension like the Threads bots responder.
+- Kitty shows all the Freedom Fusion automations from Gumroad — show them in video, with actual thread scrolling.
+- TikTok live: Rome has Pushcut installed on his iPhone. Pushcut has an API that can trigger a Shortcut; the Shortcut opens TikTok and joins the live. Build this automation on the phone ravii has access to. When it goes live, it dispatches Rome's iPhone through Pushcut — so Rome can talk to it anytime.
+- Show Kitty dispatching the TikTok live, saying something like: "Hey, I am ready to sell on TikTok live, about to go live now."
+- The live runs through OBS on the computer, showing what's on the iPhone screen in the OBS virtual camera — that is Kitty. While scrolling through Threads, Kitty shows the relevant thread when anyone asks for more info. The live shows the actual iPhone doing things on Threads — executing wild routines like reposting the latest threads clusters.
+- Snowball effect: the more people like / repost / requote, the easier it is for other people to discover us.
