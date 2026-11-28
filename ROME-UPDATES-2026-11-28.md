@@ -31,13 +31,18 @@ Record of what Rome said in Slack today (Nov 28, ~18:19–20:00 IST). For Kitty/
 - Kitty needs to hear HOW Rome explains things first.
 - Hybrid approach: the agent picks up Rome's voice notes as he explains to a person on Instagram, and infuses them into Kitty — so the next person who comes in gets that context. Kitty self-trains and improves over time.
 
-## 6. Prequalify people by comprehension (recruitment)
-- Kitty explains and recommends relevant threads to people who show interest.
-- People must show they read the thread: hit like, repost, save, or do something to increase engagement — not just say "yes yes".
-- Kitty tracks who responded and whether they did something with the thread. Score them on that.
-- Pick people with good comprehension skills. Filter out the ones who just say yes and disappear (Rome: "see how this guy bounces" — 4 others expressed interest and disappeared).
-- This recruitment is tied into the content distribution strategy on Threads.
-- Package it all into Kitty → offer → slides. Create energy once, Kitty does the rest, so Rome doesn't have to re-explain everything multiple times. Do this in parallel with the other work.
+## 6. Kitty prequalification flow — the full steps (flexible per person)
+This runs inside ThreadsGPT — Kitty is the face that talks to the person, ThreadsGPT is the automation behind it (reads threads, scores, tracks, feeds the CRM).
+
+Goal: Kitty verifies if a lead is good or not, so Rome never has to send a voice note to every person. Every person's aim is different, so the flow must bend to what THAT person wants — no fixed script.
+
+1. Kitty explains — what Freedom Fusion is, what the person can do with us — in Rome's own words (from his voice notes, see section 5).
+2. Kitty asks questions — to test whether they actually understood the threads it showed them. The questions must fit the person's own aim, not a fixed list.
+3. Kitty checks they read the thread — did they like, repost, save, or do something with it? Track who responded and what they did.
+4. Kitty evaluates their work / talent — what can they do, how good is it, how does it fit our products, programs and divisions (their "fields of freedom").
+5. Kitty scores them — comprehension + engagement + talent fit. Keep the ones with good comprehension and real talent. Filter out the ones who just say "yes yes" and disappear (Rome: "see how this guy bounces" — 4 others expressed interest and disappeared).
+6. Kitty explains what they have to do next — their path: the offer, the course, the next mission / task — again in Rome's words.
+7. This is tied into the content distribution strategy on Threads. Package it all into Kitty → offer → slides. Create energy once, Kitty does the rest, so Rome doesn't have to re-explain everything multiple times. Do this in parallel with the other work.
 
 ## 7. Media from Rome that needs listening/watching (contents not in this file)
 - Audio clips in Slack (Nov 28 evening, several between 18:19–19:16 IST).
